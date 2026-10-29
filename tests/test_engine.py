@@ -73,6 +73,16 @@ class EconomyTests(unittest.TestCase):
         self.assertEqual(game.ports["Kepler"]["stock"]["fuel"], before - 2)
         self.assertEqual(game.credits, old_credits - result["cost"])
 
+    def test_faster_ship_shortens_travel_and_unlocks_bandwidth(self):
+        slow = Game.new(9)
+        fast = Game.new(9)
+        upgrade = fast.command("ship", "buy_ship")
+        self.assertEqual(upgrade["max_bandwidth_hz"], 1200)
+        self.assertEqual(fast.ship["speed"], 2)
+        slow_eta = slow.command("slow", "travel", destination="Meridian")["arrival_tick"]
+        fast_eta = fast.command("fast", "travel", destination="Meridian")["arrival_tick"]
+        self.assertLess(fast_eta, slow_eta)
+
 
 if __name__ == "__main__":
     unittest.main()

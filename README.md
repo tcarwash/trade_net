@@ -42,6 +42,15 @@ python -m unittest discover -s tests -v
 
 Try `status`, `market`, `buy food 3`, `travel Kepler`, `wait 3`, and `sell food 3`. Each seed deterministically chooses an abundant rare resource (`aether`, `iridium`, or `mycelium`). Commands are durably journaled and deduplicated by ID. This is an intentionally small backend preview, not yet a complete game.
 
+### Graphical local preview
+
+```sh
+python -m tradenet.web --callsign AG7SU --seed 42
+# Open http://127.0.0.1:8765
+```
+
+This dependency-free browser UI shows the economy, ship controls, and a galaxy map. The radio simulator breaks payloads into 64-byte frames, injects configurable loss, retries incomplete transfers, measures verified goodput, and discovers the destination plus its advertised next hops. Direct/observed versus reported/unverified links are distinct. **It never transmits RF.** Simulation history is saved next to the galaxy file in `galaxy.network.json`.
+
 ## Design guardrails
 
 Local-first; explicitly permissioned transmissions; inspectable/unobscured game messages; no real-money economy; no reward for raw spam traffic; duplicate-safe transactions; bounded packet/airtime budgets; versioned, forwards-compatible messages; honest separation of measured and reported data.

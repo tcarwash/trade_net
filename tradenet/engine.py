@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import math
 import random
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
+from .modems import TIERS
 
 
 GOODS = ("food", "ore", "fuel", "medicine", "aether", "iridium", "mycelium")
@@ -65,7 +67,7 @@ class Game:
                    cargo={g: 0 for g in GOODS},
                    ship={"name": "Wayfarer", "capacity": 30, "fuel": 40,
                          "max_fuel": 40, "condition": 100, "destination": None,
-                         "arrival_tick": None})
+                         "arrival_tick": None, "modem_tier": 0, "speed": 1})
 
     def price(self, port: str, good: str, action: str) -> int:
         self._check_port_good(port, good)
@@ -116,6 +118,10 @@ class Game:
                 result = self._refuel(**kwargs)
             elif action == "upgrade":
                 result = self._upgrade()
+            elif action == "upgrade_modem":
+                result = self._buy_ship()
+            elif action == "buy_ship":
+                result = self._buy_ship()
             elif action == "accept_contract":
                 result = self._accept_contract(**kwargs)
             elif action == "cancel_contract":
@@ -175,7 +181,7 @@ class Game:
         self.ship["fuel"] -= fuel_cost
         self.ship["condition"] = max(0, self.ship["condition"] - max(1, distance))
         self.ship["destination"] = destination
-        self.ship["arrival_tick"] = self.tick + max(1, distance)
+        self.ship["arrival_tick"] = self.tick + max(1, math.ceil(distance / self.ship.get("speed", 1)))
         return {"destination": destination, "arrival_tick": self.ship["arrival_tick"],
                 "fuel_cost": fuel_cost}
 
@@ -231,6 +237,23 @@ class Game:
         self.credits -= cost
         self.ship["capacity"] += 10
         return {"cost": cost, "capacity": self.ship["capacity"]}
+
+    def _buy_ship(self) -> dict:
+        self._available()
+        tier = self.ship.get("modem_tier", 0)
+        if tier >= len(TIERS) - 1:
+            raise GameError("fastest ship class already owned")
+        next_tier = TIERS[tier + 1]
+        cost = next_tier["upgrade_cost"]
+        if self.credits < cost:
+            raise GameError("insufficient credits for faster ship")
+        self.credits -= cost
+        self.ship["modem_tier"] = tier + 1
+        self.ship["speed"] = tier + 2
+        self.ship["name"] = next_tier["name"]
+        return {"cost": cost, "ship": next_tier["name"],
+                "speed": self.ship["speed"],
+                "max_bandwidth_hz": next_tier["max_bandwidth_hz"]}
 
     def _accept_contract(self, contract_id: str) -> dict:
         self._available()

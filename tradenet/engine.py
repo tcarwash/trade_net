@@ -34,6 +34,7 @@ class Game:
     completed_commands: dict = field(default_factory=dict)
     schema_version: int = 1
     specialization: str = ""
+    contracts: dict = field(default_factory=dict)
 
     @classmethod
     def new(cls, seed: int = 1, name: str = "Home Galaxy") -> "Game":
@@ -114,6 +115,12 @@ class Game:
                 result = self._refuel(**kwargs)
             elif action == "upgrade":
                 result = self._upgrade()
+            elif action == "accept_contract":
+                result = self._accept_contract(**kwargs)
+            elif action == "cancel_contract":
+                result = self._cancel_contract(**kwargs)
+            elif action == "reclaim_contract":
+                result = self._reclaim_contract(**kwargs)
             else:
                 raise GameError(f"unknown action: {action}")
         except (GameError, TypeError, KeyError) as exc:
@@ -223,6 +230,42 @@ class Game:
         self.credits -= cost
         self.ship["capacity"] += 10
         return {"cost": cost, "capacity": self.ship["capacity"]}
+
+    def _accept_contract(self, contract_id: str) -> dict:
+        self._available()
+        c = self.contracts.get(contract_id)
+        if not c or c["status"] != "offered":
+            raise GameError("contract is not available")
+        if self.tick > c["deadline"]:
+            raise GameError("contract offer has expired")
+        if self.cargo[c["good"]] < c["quantity"]:
+            raise GameError("load the required cargo before accepting")
+        self.cargo[c["good"]] -= c["quantity"]
+        c["status"] = "reserved"
+        c["custody"] = self.location
+        return {"contract_id": contract_id, "status": "reserved",
+                "reserved": {c["good"]: c["quantity"]}}
+
+    def _cancel_contract(self, contract_id: str) -> dict:
+        c = self.contracts.get(contract_id)
+        if not c or c["status"] != "reserved":
+            raise GameError("only undispatched reservations can be cancelled")
+        if self.cargo_used() + c["quantity"] > self.ship["capacity"]:
+            raise GameError("insufficient cargo space to return reservation")
+        self.cargo[c["good"]] += c["quantity"]
+        c["status"] = "cancelled"
+        c["custody"] = None
+        return {"contract_id": contract_id, "status": "cancelled"}
+
+    def _reclaim_contract(self, contract_id: str) -> dict:
+        c = self.contracts.get(contract_id)
+        if not c or c["status"] != "expired" or c["custody"] != c.get("origin_id"):
+            raise GameError("expired cargo is not available for local recovery")
+        if self.cargo_used() + c["quantity"] > self.ship["capacity"]:
+            raise GameError("insufficient hold space")
+        self.cargo[c["good"]] += c["quantity"]
+        c["status"] = "reclaimed"
+        return {"contract_id": contract_id, "status": "reclaimed"}
 
     def to_dict(self) -> dict:
         return deepcopy(self.__dict__)

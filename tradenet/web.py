@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .engine import Game, GameError, GOODS
 from .network import Network
+from .contracts import seed_offers, dispatch
 
 WEB = Path(__file__).with_name("web")
 
@@ -20,6 +22,9 @@ class App:
         self.game = Game.load(save) if save.exists() else Game.new(seed)
         self.net = (Network.from_dict(json.loads(self.net_save.read_text()))
                     if self.net_save.exists() else Network(callsign))
+        self.lock = threading.RLock()
+        seed_offers(self.game)
+        self.persist()
 
     def persist(self):
         self.game.save(self.save)
@@ -43,6 +48,10 @@ class App:
         elif action == "discover":
             self.net.discover(str(request["peer"]), request.get("neighbors", []))
             result = {"discovered": request["peer"]}
+        elif action == "dispatch_contract":
+            result = dispatch(self.game, self.net, str(request["contract_id"]),
+                              route=request.get("route"),
+                              loss=float(request.get("loss", .15)))
         else:
             result = self.game.command(str(request["id"]), str(action),
                                        **request.get("args", {}))
@@ -65,7 +74,8 @@ def serve(host="127.0.0.1", port=8765, save="galaxy.json", seed=42, callsign="AG
 
         def do_GET(self):
             if self.path == "/api/state":
-                self.respond(200, app.state())
+                with app.lock:
+                    self.respond(200, app.state())
                 return
             if self.path not in ("/", "/index.html"):
                 self.send_error(404)
@@ -86,8 +96,9 @@ def serve(host="127.0.0.1", port=8765, save="galaxy.json", seed=42, callsign="AG
                 if not 0 < length <= 32768:
                     raise ValueError("invalid request size")
                 request = json.loads(self.rfile.read(length))
-                result = app.execute(request)
-                self.respond(200, {"result": result, "state": app.state()})
+                with app.lock:
+                    result = app.execute(request)
+                    self.respond(200, {"result": result, "state": app.state()})
             except (ValueError, GameError, KeyError, TypeError) as exc:
                 self.respond(400, {"error": str(exc)})
 

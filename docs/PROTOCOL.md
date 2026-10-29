@@ -1,0 +1,97 @@
+# Trade Net — Architecture and Wire Concepts (Draft)
+
+This is a design contract, not an implemented RF protocol.
+
+## Components
+
+- **Core engine:** deterministic commands/reducer, economy ticks, ships and starports; no dependency on UI or modem.
+- **Journal and ledger:** durable append-only commands, deduplication keys, resulting state snapshots, replay/migrations.
+- **Transport abstraction:** send/receive opaque bounded envelopes; fake lossy transport first, then radio-arcade adapter.
+- **Reliable delivery:** segmentation/reassembly, integrity verification, retries, app receipts, outbox/relay custody.
+- **Discovery and metrics:** adjacency digests, measured directional links, stale/report provenance.
+- **UI:** state projections, no direct mutation of ledger.
+- **AI agents:** submit validated game commands, not privileged state mutations.
+
+## End-to-end state machine
+
+```text
+DRAFT -> RESERVED -> QUEUED -> SENDING -> TRANSFER_VERIFIED
+                                  |                 |
+                                  v                 v
+                              RETRY_WAIT       DELIVERY_ACKED
+                                                    |
+                                                    v
+                                              APP_ACCEPTED
+                                                    |
+                                                    v
+                                                SETTLED
+```
+
+Failure/expiry may branch from any pending state to REJECTED/EXPIRED, with idempotent reserve release. TRANSFER_VERIFIED on receiver and DELIVERY_ACKED on sender are different observations. An acknowledgment is not settlement.
+
+## Suggested compact envelope
+
+```text
+version | type | flags | message_id | source_id | destination_id
+world_id | created_epoch | ttl | payload_length | payload_hash | payload
+```
+
+All fields have explicit byte limits and canonical serialization. Prefer CBOR or fixed binary framing after measuring overhead. For fragmentation, use a bounded chunk header with message ID, part index/count, chunk hash/check, and total hash. The actual modem may already fragment; avoid redundant layers until the adapter's framing and maximum payload are known.
+
+Message classes: HELLO, PEER_DIGEST, MARKET_BULLETIN, ORDER, CUSTODY_ACK, DELIVERY_ACK, APP_RESULT, SETTLEMENT, FRAGMENT_REQUEST. Size budgets to be benchmarked against real radio-arcade/Data2G payload capacities. HELLO and digests should be small; longer payloads explicit mission choices.
+
+Receipts bind original ID, content digest, receiving identity, result, receiver nonce, and logical timestamp, with optional signing. The signature mechanism is pluggable; it must not encrypt or conceal message meaning. Callsign identification, disclosure and allowed signaling require an amateur-regulatory review.
+
+## Discovery/privacy
+
+A HELLO may exchange protocol versions, world ID, optional nickname and public capabilities. A PEER_DIGEST has a strict max entry count (e.g. eight), per-entry peer identifier, directional rate estimate, success fraction, last-seen age bucket, provenance and expiry; never include private frequencies, location or full logs by default. A learned next-hop advertisement is a *claim*, not direct proof.
+
+Reject malformed/oversized/expired digests, ignore self-links, cap traversal depth and graph size, deduplicate sequence numbers, and age out stale route information. Allow users to disable gossip or selectively hide neighbors.
+
+## Link estimators
+
+Session record:
+```json
+{
+  "peer": "EXAMPLE",
+  "direction": "outbound",
+  "transport": "rf",
+  "started_ms": 0,
+  "ended_ms": 120000,
+  "verified_unique_payload_bytes": 4096,
+  "attempted_air_bytes": 6400,
+  "frames_sent": 14,
+  "frames_lost_or_unacked": 4,
+  "delivery_acknowledged": true
+}
+```
+
+Goodput = verified unique payload bytes / wall-clock transfer seconds. Count retry overhead only in the denominator, not the unique-byte numerator. Track completion ratio over attempted sessions (including failures), median latency, protocol overhead, and confidence/sample count. For received-only sessions, receiver cannot infer all sender retry airtime; mark estimates accordingly. Use bounded, recent smoothing and aging rather than all-time averages.
+
+**Do not equate frame loss with physical cargo loss.** A lost chunk is a transport event; game attrition is a visible, deterministic function of airtime, retries, deadline and explicit insurance/contract policies.
+
+## Transaction integrity
+
+Every inventory-affecting command has world ID, actor, monotonic/nonce command ID, base revision and expiration. An authority accepts a command at most once and produces deterministic result plus new ledger revision. Reserve escrow before dispatch; settle only with a unique acceptance result. A duplicate receives the original receipt. A late/replayed/reordered command cannot issue extra resources.
+
+There is one authority per hosted world. Independent personal galaxies have separate ledgers; cross-galaxy economic effects require each world's explicit contract settlement and compensation/expiry rules. Cryptographic signatures provide attribution only insofar as keys are trusted. They do not prove the RF route.
+
+## Radio-arcade adapter
+
+Proposed engine-facing interface (pseudocode, **not a claim about radio-arcade's current API**):
+
+```python
+class Transport:
+    async def send(self, destination: str, payload: bytes, priority: int) -> str: ...
+    async def receive(self) -> AsyncIterator[ReceivedFrame]: ...
+    def capabilities(self) -> TransportCapabilities: ...
+    def request_cancel(self, local_send_id: str) -> None: ...
+```
+
+Capabilities include max payload, supported addressing/broadcast, ACK behavior, duplex constraints, estimated airtime, and operator PTT control. Start with simulated in-memory transport, loss/reordering/duplication injection, then build an adapter using *verified* library APIs.
+
+Never automatically retransmit without configured duty-cycle, airtime and operator controls. Game priorities cannot override actual emergency traffic or legal operating requirements.
+
+## Security and validation
+
+Untrusted packets must not trigger arbitrary execution, file access, automatic PTT, or unbounded allocations. Validate lengths before allocation; maintain bounded outbox/inbox/relay storage, reject unrecognized versions safely, and use message TTL and per-peer rate limits. Store received raw hashes and decoded metadata for audit, with configurable privacy/retention. Tests must include hostile lengths, forgery, conflicting snapshots, clock skew, duplication, reordering, loss and restart during settlement.

@@ -57,6 +57,12 @@ The browser also includes an AI demand board. Each seeded galaxy gets five stabl
 
 These are **local NPC authority contracts**, not cross-galaxy synchronized trades. The real-radio adapter, independent remote ledgers, negotiated contracts, signed custody receipts, and relay fee payments remain future work. No on-air transmission is initiated by this UI.
 
+### Two-galaxy exchange lab
+
+The preview now has a separate **Intergalactic Exchange Laboratory**. It creates two seeded galaxies with *different* abundant rare resources and a starter export offer. Click **Reserve both sides**, **Forward / retry**, then **Settle receipt**. Optionally add a relay callsign and increase frame loss; each click advances a single custody hop, so a failed hop can be retried. The seller's goods and buyer's credits enter escrow, incoming cargo space is reserved, and a destination delivery receipt is required before either ledger receives the exchanged value. Duplicate settlement has no additional effect. The two worlds, network observations, and receipts are saved in `galaxy.federation.json` as one bundle.
+
+**Important:** this is a *single-process two-world simulator*, not distributed settlement between independent radios. The receipt is hash-bound but not signed, and on-air carriage is not proven. Real peers will need a durable outbox, reconciliation after partition, recovery/cancellation protocol, trust model, and a radio-arcade adapter.
+
 ## Design guardrails
 
 Local-first; explicitly permissioned transmissions; inspectable/unobscured game messages; no real-money economy; no reward for raw spam traffic; duplicate-safe transactions; bounded packet/airtime budgets; versioned, forwards-compatible messages; honest separation of measured and reported data.

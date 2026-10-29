@@ -5,3 +5,4 @@ galaxy.json
 my-galaxy.json
 *.network.json
 *.federation.json
+*.mail.json

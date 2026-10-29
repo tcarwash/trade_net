@@ -22,8 +22,9 @@
 
 ## Milestone 2: Two-station simulated logistics
 
-- [ ] Two independent worlds with distinct economies and bilateral reconciliation.
-- [ ] Durable outbox/inbox, signed ACKs, remote acceptance and multi-authority settlement.
+- [x] Two independent simulated worlds with distinct rare-resource economies, escrow, and one-process bilateral settlement.
+- [ ] Actual distributed bilateral reconciliation across independent peers after partitions/restarts.
+- [ ] Durable peer-to-peer outbox/inbox, signed ACKs, remote acceptance and multi-authority settlement.
 - [x] Seeded simulated fragment loss/retry and per-hop custody; delay is modeled through airtime ticks.
 - [x] Local NPC contract escrow, cancellation, idempotent destination settlement.
 - [x] AI-generated NPC contract offers with larger rare-resource payloads.

@@ -12,6 +12,7 @@ from .engine import Game, GameError, GOODS
 from .network import Network
 from .contracts import seed_offers, dispatch
 from .federation import Federation
+from .mail import MailNetwork
 
 WEB = Path(__file__).with_name("web")
 
@@ -28,6 +29,11 @@ class App:
                            if self.federation_save.exists()
                            else Federation.demo(local_id=callsign, seed=seed))
         self.federation.network = self.net
+        self.mail_save = save.with_suffix(".mail.json")
+        self.mail = (MailNetwork.load(self.mail_save)
+                     if self.mail_save.exists() else MailNetwork())
+        for station in self.federation.worlds:
+            self.mail.add_station(station)
         if not self.federation.trades:
             local, remote = list(self.federation.worlds)
             self.federation.propose("DEMO-001", local, remote,
@@ -43,10 +49,12 @@ class App:
         temporary.write_text(json.dumps(self.net.to_dict(), indent=2) + "\n")
         temporary.replace(self.net_save)
         self.federation.save(self.federation_save)
+        self.mail.save(self.mail_save)
 
     def state(self):
         return {"game": self.game.to_dict(), "network": self.net.to_dict(),
                 "federation": self.federation.to_dict(),
+                "mail": self.mail.to_dict(),
                 "goods": GOODS,
                 "prices": {port: {good: {"buy": self.game.price(port, good, "buy"),
                                             "sell": self.game.price(port, good, "sell")}
@@ -75,6 +83,21 @@ class App:
             result = self.federation.settle(str(request["trade_id"]))
         elif action == "exchange_cancel":
             result = self.federation.cancel(str(request["trade_id"]))
+        elif action == "exchange_queue":
+            result = self.federation.queue_trade(self.mail, str(request["trade_id"]),
+                                                 route=request.get("route"))
+        elif action == "exchange_modem_upgrade":
+            seller = next(iter(self.federation.worlds.values()))
+            result = seller.command(str(request["id"]), "buy_ship")
+        elif action == "mail_step":
+            events = self.mail.step(loss=float(request.get("loss", .15)),
+                                    budget_frames=int(request.get("budget_frames", 16)))
+            result = {"mail_events": events,
+                      "trade_changes": self.federation.sync_mail(self.mail)}
+        elif action == "mail_station":
+            station = str(request["station"])
+            self.mail.set_online(station, bool(request["online"]))
+            result = {"station": station, "online": self.mail.stations[station]["online"]}
         else:
             result = self.game.command(str(request["id"]), str(action),
                                        **request.get("args", {}))

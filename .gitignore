@@ -4,3 +4,4 @@ __pycache__/
 galaxy.json
 my-galaxy.json
 *.network.json
+*.federation.json

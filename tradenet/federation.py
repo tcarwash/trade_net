@@ -14,6 +14,8 @@ from pathlib import Path
 from .contracts import simulate_hop
 from .engine import Game, GameError, RARE
 from .network import Network
+from .mail import MailNetwork
+from .modems import TIERS
 
 
 def canonical_hash(value: dict) -> str:
@@ -125,6 +127,59 @@ class Federation:
                  "custody": t["custody"]}
         self.events.append(event)
         return event
+
+    def queue_trade(self, mail: MailNetwork, trade_id: str, route=None):
+        """Queue terms for asynchronous, receipt-confirmed delivery."""
+        t = self._trade(trade_id)
+        if t["status"] == "queued":
+            return mail.messages["trade:" + trade_id]
+        if t["status"] != "reserved":
+            raise GameError("reserve the trade before queueing")
+        route = route or [t["seller"], t["buyer"]]
+        if (not isinstance(route, list) or not 2 <= len(route) <= 8 or
+                route[0] != t["seller"] or route[-1] != t["buyer"] or
+                len(route) != len(set(route))):
+            raise GameError("invalid store-and-forward route")
+        for station in route:
+            mail.add_station(station)
+        # Content is deterministic and inspectable; pad to a mission's chosen
+        # multipart size without changing the hash-bound trade terms.
+        payload = json.dumps({"trade": trade_id, "terms_hash": t["hash"]},
+                             sort_keys=True, separators=(",", ":")).encode()
+        payload += b" " * max(0, t["payload_bytes"] - len(payload))
+        tier = TIERS[self.worlds[t["seller"]].ship.get("modem_tier", 0)]
+        msg = mail.enqueue("trade:" + trade_id, route, payload, priority=2,
+                           frames_per_tick=tier["frames_per_tick"],
+                           bandwidth_hz=tier["max_bandwidth_hz"])
+        t["route"] = route[:]
+        t["status"] = "queued"
+        t["custody"] = t["seller"]
+        self.events.append({"trade": trade_id, "event": "queued"})
+        return msg
+
+    def sync_mail(self, mail: MailNetwork):
+        """Only an end-to-end returned ACK permits application settlement."""
+        changes = []
+        for t in self.trades.values():
+            if t["status"] != "queued":
+                continue
+            msg = mail.messages.get("trade:" + t["id"])
+            if not msg:
+                continue
+            t["custody"] = msg["route"][msg["hop"]]
+            if msg["status"] == "acknowledged":
+                t["status"] = "delivered"
+                t["receipt"] = {"trade_id": t["id"], "terms_hash": t["hash"],
+                                "receiver": t["buyer"], "accepted": True,
+                                "receipt_id": msg["receipt_id"]}
+                changes.append({"trade": t["id"], "status": "delivered"})
+            elif msg["status"] == "expired":
+                # Retain escrow for explicit reconciliation; automatic refund
+                # would risk duplicate settlement after delayed delivery.
+                t["status"] = "reconcile_required"
+                changes.append({"trade": t["id"], "status": "reconcile_required"})
+        self.events.extend(changes)
+        return changes
 
     def settle(self, trade_id: str, receipt: dict | None = None):
         t = self._trade(trade_id)

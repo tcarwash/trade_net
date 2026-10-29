@@ -4,7 +4,8 @@
 
 - [x] Establish vision and separation of game/radio layers.
 - [x] Document economy, discovery, topology metrics and transport attrition.
-- [ ] Inspect actual `tcarwash/radio-arcade` library API once accessible; record version/commit and feasible frame sizes.
+- [x] Select direct Data2G integration over radio-arcade; record capability and ship-tier contract in `DATA2G-INTEGRATION.md`.
+- [ ] Verify concrete installed Data2G host/KISS interfaces and frame-size limits before writing the live adapter.
 - [ ] Choose implementation language and client stack. Suggested: Python engine for rapid integration, with a desktop/web-capable client later.
 - [ ] Define explicit RF airtime budget and operating controls.
 
@@ -24,7 +25,8 @@
 
 - [x] Two independent simulated worlds with distinct rare-resource economies, escrow, and one-process bilateral settlement.
 - [ ] Actual distributed bilateral reconciliation across independent peers after partitions/restarts.
-- [ ] Durable peer-to-peer outbox/inbox, signed ACKs, remote acceptance and multi-authority settlement.
+- [x] Persisted simulated store-and-forward queue, multipart reassembly, offline custody, and reverse-path application ACKs.
+- [ ] Independently persisted peer-to-peer outbox/inbox, signed ACKs, remote acceptance and multi-authority settlement.
 - [x] Seeded simulated fragment loss/retry and per-hop custody; delay is modeled through airtime ticks.
 - [x] Local NPC contract escrow, cancellation, idempotent destination settlement.
 - [x] AI-generated NPC contract offers with larger rare-resource payloads.
@@ -45,7 +47,7 @@
 
 ## Milestone 4: RF adapter
 
-- [ ] Verify radio-arcade APIs and supported frame payload budget.
+- [ ] Verify Data2G host/KISS APIs and supported frame payload budget.
 - [ ] Implement capability-aware adapter and binary envelope.
 - [ ] Integrate operator-controlled transmit queue, airtime estimate and duty limits.
 - [ ] Cross-version compatibility tests, real modem loopback, then low-power controlled on-air trials.

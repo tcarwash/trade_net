@@ -29,7 +29,18 @@ The fictional economy remains playable locally. Radio is an optional, meaningful
 
 ## Status
 
-Design scaffolding only. There is no implemented engine, radio adapter, playable client, or RF protocol here yet.
+An initial **solo Python engine and interactive CLI** are implemented. There is no radio adapter, graphical client, or on-air protocol yet.
+
+### Try the prototype
+
+Requires Python 3.10+; no third-party packages:
+
+```sh
+python -m tradenet --seed 42 --save my-galaxy.json
+python -m unittest discover -s tests -v
+```
+
+Try `status`, `market`, `buy food 3`, `travel Kepler`, `wait 3`, and `sell food 3`. Each seed deterministically chooses an abundant rare resource (`aether`, `iridium`, or `mycelium`). Commands are durably journaled and deduplicated by ID. This is an intentionally small backend preview, not yet a complete game.
 
 ## Design guardrails
 

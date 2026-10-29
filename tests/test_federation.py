@@ -5,6 +5,7 @@ from pathlib import Path
 from tradenet import GameError
 from tradenet.federation import Federation
 from tradenet.web import App
+from tradenet.mail import MailNetwork
 
 
 class FederationTests(unittest.TestCase):
@@ -117,6 +118,59 @@ class FederationTests(unittest.TestCase):
             restarted = App(path, 42, "AG7SU")
             self.assertEqual(restarted.federation.trades[t["id"]]["status"], "settled")
             self.assertEqual(restarted.execute({"action": "exchange_settle", "trade_id": t["id"]}), receipt)
+
+    def test_async_queue_and_late_reverse_ack(self):
+        self.propose()
+        self.f.reserve("T1")
+        mail = MailNetwork()
+        self.f.queue_trade(mail, "T1", [self.seller, "RELAY", self.buyer])
+        mail.set_online(self.buyer, False)
+        for _ in range(10):
+            mail.step(loss=0, budget_frames=64)
+            self.f.sync_mail(mail)
+        self.assertEqual(self.f.trades["T1"]["status"], "queued")
+        self.assertEqual(mail.messages["trade:T1"]["hop"], 1)
+        mail.set_online(self.buyer, True)
+        for _ in range(30):
+            mail.step(loss=0, budget_frames=64)
+            self.f.sync_mail(mail)
+            if self.f.trades["T1"]["status"] == "delivered":
+                break
+        self.assertEqual(self.f.trades["T1"]["status"], "delivered")
+        self.f.settle("T1")
+        self.assertEqual(self.f.worlds[self.buyer].cargo[self.good], 2)
+
+    def test_ship_modem_upgrade_gates_mail_capacity(self):
+        self.propose()
+        self.f.reserve("T1")
+        seller = self.f.worlds[self.seller]
+        seller.command("upgrade-modem", "upgrade_modem")
+        mail = MailNetwork()
+        msg = self.f.queue_trade(mail, "T1")
+        self.assertEqual(msg["bandwidth_hz"], 1200)
+        self.assertEqual(msg["frames_per_tick"], 6)
+
+    def test_web_async_exchange_survives_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "galaxy.json"
+            app = App(path, 42, "AG7SU")
+            trade_id = "DEMO-001"
+            app.execute({"action": "exchange_reserve", "trade_id": trade_id})
+            app.execute({"action": "exchange_queue", "trade_id": trade_id,
+                         "route": ["AG7SU", "SIM-RELAY", "SIM-K7OR"]})
+            app.execute({"action": "mail_station", "station": "SIM-K7OR", "online": False})
+            for _ in range(5):
+                app.execute({"action": "mail_step", "loss": 0, "budget_frames": 64})
+            app = App(path, 42, "AG7SU")
+            self.assertEqual(app.federation.trades[trade_id]["status"], "queued")
+            app.execute({"action": "mail_station", "station": "SIM-K7OR", "online": True})
+            for _ in range(30):
+                app.execute({"action": "mail_step", "loss": 0, "budget_frames": 64})
+                if app.federation.trades[trade_id]["status"] == "delivered":
+                    break
+            self.assertEqual(app.federation.trades[trade_id]["status"], "delivered")
+            app.execute({"action": "exchange_settle", "trade_id": trade_id})
+            self.assertEqual(App(path, 42, "AG7SU").federation.trades[trade_id]["status"], "settled")
 
 
 if __name__ == "__main__":

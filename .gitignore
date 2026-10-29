@@ -3,3 +3,4 @@ __pycache__/
 *.tmp
 galaxy.json
 my-galaxy.json
+*.network.json

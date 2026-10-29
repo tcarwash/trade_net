@@ -51,6 +51,12 @@ python -m tradenet.web --callsign AG7SU --seed 42
 
 This dependency-free browser UI shows the economy, ship controls, and a galaxy map. The radio simulator breaks payloads into 64-byte frames, injects configurable loss, retries incomplete transfers, measures verified goodput, and discovers the destination plus its advertised next hops. Direct/observed versus reported/unverified links are distinct. **It never transmits RF.** Simulation history is saved next to the galaxy file in `galaxy.network.json`.
 
+### AI contracts and simulated couriers
+
+The browser also includes an AI demand board. Each seeded galaxy gets five stable NPC shipping contracts. Purchase the listed cargo at a market, **reserve** it for a contract, then **dispatch** it directly or through a comma-separated sequence of simulated courier callsigns. Each click advances one hop: frame losses may require another attempt while the parcel stays with its current custodian. Every transfer consumes simulated time; the deadline and payout matter. Destination settlement is idempotent and produces the credit reward once. Reserved-but-undispatched cargo can be cancelled through the engine API.
+
+These are **local NPC authority contracts**, not cross-galaxy synchronized trades. The real-radio adapter, independent remote ledgers, negotiated contracts, signed custody receipts, and relay fee payments remain future work. No on-air transmission is initiated by this UI.
+
 ## Design guardrails
 
 Local-first; explicitly permissioned transmissions; inspectable/unobscured game messages; no real-money economy; no reward for raw spam traffic; duplicate-safe transactions; bounded packet/airtime budgets; versioned, forwards-compatible messages; honest separation of measured and reported data.

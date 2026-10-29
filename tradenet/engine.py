@@ -35,6 +35,7 @@ class Game:
     schema_version: int = 1
     specialization: str = ""
     contracts: dict = field(default_factory=dict)
+    incoming_reserved: int = 0
 
     @classmethod
     def new(cls, seed: int = 1, name: str = "Home Galaxy") -> "Game":
@@ -146,7 +147,7 @@ class Game:
                 raise GameError("insufficient port stock")
             if self.credits < total:
                 raise GameError("insufficient credits")
-            if self.cargo_used() + amount > self.ship["capacity"]:
+            if self.cargo_used() + self.incoming_reserved + amount > self.ship["capacity"]:
                 raise GameError("cargo hold full")
             stock[good] -= amount
             self.cargo[good] += amount

@@ -11,6 +11,7 @@ from pathlib import Path
 from .engine import Game, GameError, GOODS
 from .network import Network
 from .contracts import seed_offers, dispatch
+from .federation import Federation
 
 WEB = Path(__file__).with_name("web")
 
@@ -22,6 +23,16 @@ class App:
         self.game = Game.load(save) if save.exists() else Game.new(seed)
         self.net = (Network.from_dict(json.loads(self.net_save.read_text()))
                     if self.net_save.exists() else Network(callsign))
+        self.federation_save = save.with_suffix(".federation.json")
+        self.federation = (Federation.load(self.federation_save)
+                           if self.federation_save.exists()
+                           else Federation.demo(local_id=callsign, seed=seed))
+        self.federation.network = self.net
+        if not self.federation.trades:
+            local, remote = list(self.federation.worlds)
+            self.federation.propose("DEMO-001", local, remote,
+                                    self.federation.worlds[local].specialization,
+                                    2, 220, payload_bytes=1024)
         self.lock = threading.RLock()
         seed_offers(self.game)
         self.persist()
@@ -31,9 +42,11 @@ class App:
         temporary = self.net_save.with_suffix(self.net_save.suffix + ".tmp")
         temporary.write_text(json.dumps(self.net.to_dict(), indent=2) + "\n")
         temporary.replace(self.net_save)
+        self.federation.save(self.federation_save)
 
     def state(self):
         return {"game": self.game.to_dict(), "network": self.net.to_dict(),
+                "federation": self.federation.to_dict(),
                 "goods": GOODS,
                 "prices": {port: {good: {"buy": self.game.price(port, good, "buy"),
                                             "sell": self.game.price(port, good, "sell")}
@@ -52,6 +65,16 @@ class App:
             result = dispatch(self.game, self.net, str(request["contract_id"]),
                               route=request.get("route"),
                               loss=float(request.get("loss", .15)))
+        elif action == "exchange_reserve":
+            result = self.federation.reserve(str(request["trade_id"]))
+        elif action == "exchange_dispatch":
+            result = self.federation.dispatch(str(request["trade_id"]),
+                                              loss=float(request.get("loss", .15)),
+                                              route=request.get("route"))
+        elif action == "exchange_settle":
+            result = self.federation.settle(str(request["trade_id"]))
+        elif action == "exchange_cancel":
+            result = self.federation.cancel(str(request["trade_id"]))
         else:
             result = self.game.command(str(request["id"]), str(action),
                                        **request.get("args", {}))

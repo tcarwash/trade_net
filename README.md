@@ -24,8 +24,8 @@ The fictional economy remains playable locally. Radio is an optional, meaningful
 ## Intended relationship to existing projects
 
 - **PixelQSO:** independent card-collection gamification and verified-transfer achievements; share ideas and, eventually, a generic evidence/event contract rather than depend on its UI.
-- **radio-arcade:** intended RF transport integration. The adapter API will be determined from the actual library; no concrete API is assumed yet.
-- **Data2G:** possible lower-level modem/host behind an adapter; game rules must not depend on a particular modem.
+- **Data2G:** intended direct RF host integration through its supported KISS/host interfaces. Game rules remain transport-independent.
+- **radio-arcade:** a related project, but not the planned transport dependency for Trade Net.
 
 ## Status
 
@@ -61,7 +61,9 @@ These are **local NPC authority contracts**, not cross-galaxy synchronized trade
 
 The preview now has a separate **Intergalactic Exchange Laboratory**. It creates two seeded galaxies with *different* abundant rare resources and a starter export offer. Click **Reserve both sides**, **Forward / retry**, then **Settle receipt**. Optionally add a relay callsign and increase frame loss; each click advances a single custody hop, so a failed hop can be retried. The seller's goods and buyer's credits enter escrow, incoming cargo space is reserved, and a destination delivery receipt is required before either ledger receives the exchanged value. Duplicate settlement has no additional effect. The two worlds, network observations, and receipts are saved in `galaxy.federation.json` as one bundle.
 
-**Important:** this is a *single-process two-world simulator*, not distributed settlement between independent radios. The receipt is hash-bound but not signed, and on-air carriage is not proven. Real peers will need a durable outbox, reconciliation after partition, recovery/cancellation protocol, trust model, and a radio-arcade adapter.
+For a more realistic asynchronous demonstration, click **Reserve both sides**, **Queue async freight**, and repeatedly **Advance radio window**. Toggle the destination offline to watch a relay retain custody. Once it returns, the queued fragments complete and an application ACK travels the reverse route. Only then can you settle. The persistent queue and inbox are saved in `galaxy.mail.json`. Buying a faster ship unlocks a wider simulated modem tier and more frames per window; see [direct Data2G integration plan](docs/DATA2G-INTEGRATION.md).
+
+**Important:** this is a *single-process two-world simulator*, not distributed settlement between independent radios. The receipt is hash-bound but not signed, and on-air carriage is not proven. Real peers will need independent durable outboxes, reconciliation after partition, a recovery/cancellation protocol, a trust model, and a **direct Data2G adapter**.
 
 ## Design guardrails
 

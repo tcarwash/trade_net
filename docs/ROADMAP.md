@@ -10,34 +10,34 @@
 
 ## Milestone 1: Solo playable vertical slice
 
-- [ ] Deterministic world seed and state schema.
-- [ ] Four-goods market with stock, demand, bounded prices and ticks.
-- [ ] Individual ship, cargo hold, fuel, travel times and trade commands.
-- [ ] Three NPC starports with distinct economic specialization.
-- [ ] Save/load/replay journal, schema migration and command deduplication.
-- [ ] Minimal interface: galaxy, market, ship, orders, event log.
+- [x] Deterministic world seed and state schema (v1).
+- [x] Seven-goods market with stock, production/consumption, bounded prices and ticks.
+- [x] Individual starter ship, cargo hold, fuel, travel times and trade commands.
+- [x] Five NPC starports and one abundant rare-resource specialization per galaxy.
+- [ ] Full event-reducer replay and schema migration (save/load and command deduplication exist).
+- [x] Minimal browser interface: galaxy, market, ship, contracts, comms log.
 - [ ] Unit/property tests for nonnegative stock, conserved transfers and deterministic replay.
 
 **Done when:** An offline player can buy, dispatch, sell, and earn enough to upgrade a ship, close/reopen the app, and get identical state.
 
 ## Milestone 2: Two-station simulated logistics
 
-- [ ] Two independent worlds with distinct economies.
-- [ ] Outbox/inbox, messages, ACKs, acceptance, settlement and expiry.
-- [ ] Deterministic simulated transport with loss, delay, duplication, partition and reordering.
-- [ ] Escrow/unreserve and idempotent application.
-- [ ] Game contract requiring a multipart long transmission.
-- [ ] Stateful AI that uses the same command pathway as players.
+- [ ] Two independent worlds with distinct economies and bilateral reconciliation.
+- [ ] Durable outbox/inbox, signed ACKs, remote acceptance and multi-authority settlement.
+- [x] Seeded simulated fragment loss/retry and per-hop custody; delay is modeled through airtime ticks.
+- [x] Local NPC contract escrow, cancellation, idempotent destination settlement.
+- [x] AI-generated NPC contract offers with larger rare-resource payloads.
+- [ ] Stateful autonomous AI that uses the same command pathway as players.
 
 **Done when:** Both players can make a bilateral trade despite intermittent communication and repeated messages, without duplicate resources or inconsistent settlement.
 
 ## Milestone 3: Discovery and route map
 
-- [ ] Direct peers created only after verified contact.
-- [ ] Compact neighbor digest with hop limit, provenance and expiration.
-- [ ] Distinguish reported from confirmed nodes and links.
-- [ ] Directional goodput, completion rate, latency, confidence and age.
-- [ ] Optional relay custody and destination ACK.
+- [x] Direct peers created after completed simulated transfer (not yet RF verified).
+- [ ] Compact on-air neighbor digest and robust expiration; local capped reports work.
+- [x] Distinguish reported from confirmed nodes and links.
+- [x] Directional goodput, completion rate, sample count and observation sequence.
+- [x] Simulated relay custody, destination settlement and retries (no signed receipts yet).
 - [ ] Topology-sharing privacy toggle.
 
 **Done when:** A learns about C from B, sees A–B measured and B–C reported, and can later validate C directly. Lost/stale links visibly decay.

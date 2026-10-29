@@ -74,10 +74,9 @@ class Network:
         self.transfers = self.transfers[-300:]
         # A failed attempt isn't verified discovery. Preserve previously
         # discovered endpoints, and upgrade on success only.
-        if delivered:
-            for peer in (source, destination):
-                if peer != self.local_id:
-                    self.peers[peer] = {"kind": "direct", "last_seen": self.sequence}
+        if delivered and (source == self.local_id or destination == self.local_id):
+            peer = destination if source == self.local_id else source
+            self.peers[peer] = {"kind": "direct", "last_seen": self.sequence}
         key = self._key(source, destination)
         samples = [t for t in self.transfers if self._key(t["source"], t["destination"]) == key][-20:]
         success = sum(t["delivered"] for t in samples)

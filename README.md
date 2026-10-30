@@ -65,6 +65,10 @@ For a more realistic asynchronous demonstration, click **Reserve both sides**, *
 
 **Important:** this is a *single-process two-world simulator*, not distributed settlement between independent radios. The receipt is hash-bound but not signed, and on-air carriage is not proven. Real peers will need independent durable outboxes, reconciliation after partition, a recovery/cancellation protocol, a trust model, and a **direct Data2G adapter**.
 
+### Experimental Data2G on-air harness
+
+A conservative direct Data2G command/KISS adapter is available for **receive-only capability probing and explicitly approved single-frame transmissions**. It does not automatically send game traffic, relay mail, or claim a remote receipt. Start with [the on-air test checklist](docs/ON-AIR-TESTING.md). Useful payload bundling is described there; synthetic padding has been removed from contract and trade messages.
+
 ## Design guardrails
 
 Local-first; explicitly permissioned transmissions; inspectable/unobscured game messages; no real-money economy; no reward for raw spam traffic; duplicate-safe transactions; bounded packet/airtime budgets; versioned, forwards-compatible messages; honest separation of measured and reported data.

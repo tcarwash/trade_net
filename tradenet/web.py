@@ -105,10 +105,18 @@ class App:
         elif action == "exchange_queue":
             result = self.federation.queue_trade(self.mail, str(request["trade_id"]),
                                                  route=request.get("route"),
-                                                 weight=str(request.get("weight", "light")))
+                                                 weight=str(request.get("weight", "light")),
+                                                 ship_id=request.get("ship_id"))
         elif action == "exchange_modem_upgrade":
             seller = next(iter(self.federation.worlds.values()))
             result = seller.command(str(request["id"]), "buy_ship")
+        elif action == "exchange_purchase_ship":
+            seller = next(iter(self.federation.worlds.values()))
+            result = seller.command(str(request["id"]), "purchase_ship",
+                                    tier=int(request.get("tier", 0)))
+        elif action == "exchange_hard_mode":
+            seller = next(iter(self.federation.worlds.values()))
+            result = seller.command(str(request["id"]), "set_hard_mode", enabled=True)
         elif action == "mail_step":
             events = self.mail.step(loss=float(request.get("loss", .15)),
                                     budget_frames=int(request.get("budget_frames", 16)))

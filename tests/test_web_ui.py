@@ -90,6 +90,26 @@ class BrowserUIContractTests(unittest.TestCase):
         self.assertNotIn("radio_transmit", dispatch_ui)
         self.assertNotIn("/api/action", dispatch_ui)
 
+    def test_expedition_cards_stage_choices_and_event_modals(self):
+        html = self.browser_html()
+        for marker in ("function renderExpeditions(){", "expedition-stages",
+                       "expedition-actions", "mission.stages[mission.stage]",
+                       "mission.status==='accepted'", "choice:choice.id",
+                       "command('accept_expedition'", "command('advance_expedition'",
+                       "command('abandon_expedition'", "EXPEDITION COMPLETED",
+                       "EXPEDITION MILESTONE", "Confirm abandon · keep cargo"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, html)
+
+    def test_rig_band_passport_and_longhaul_progress(self):
+        html = self.browser_html()
+        for marker in ("id=\"rigBadge\"", "bandPassport", "radio_bands_seen",
+                       "rig.frequency_hz/1e6", "Tune rig to ",
+                       "bandReady", "c.requirements||{[c.good]:c.quantity}",
+                       "LONG-HAUL MANIFEST", "stockpile over multiple sessions"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, html)
+
 
 if __name__ == "__main__":
     unittest.main()

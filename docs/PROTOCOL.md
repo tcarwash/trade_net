@@ -23,17 +23,43 @@ The receiver credits its station once, applies the sender's information, and
 returns `contact_ack` with its own profile and contracts. Both stations own
 their own economy and contract book.
 
-After contact, `delivery` carries one contract id, good, and exact quantity.
-The receiving station checks its own open contract, adds accepted stock to its
-own hub, marks the contract fulfilled, creates replacement demand from its
-current stock, credits the receipt, and sends `delivery_ack`. The sender adds
-the receiver's credit reward, marks the old contract fulfilled, and stores the
+After contact, `delivery` carries a contract ID and an exact inventory
+manifest. A legacy delivery uses `g` (good) and `q` (quantity); a long-haul
+delivery additionally includes `m`, a list of `[good, quantity]` entries.
+The receiving station checks the entire manifest against its own open
+contract and accepts all goods atomically; incomplete manifests are rejected
+without stock changes. It then creates replacement demand from its current
+stock and sends `delivery_ack`. The sender calculates a bounded reward from
+its own previously staged goods after the matching ACK (never from a peer's
+arbitrary credit claim), marks the old contract fulfilled, and stores the
 replacement contract. Repeated message ids return the saved receipt without
 crediting or adding stock again. Frames not addressed to the station are kept
 as gossip; advertised neighbor richness and contracts may be cached. Larger
 deliveries include available second-hop stock, production and contract reports.
 The sender only forwards reports it actually received, with observation time
 and reporting station retained in the receiver's cache.
+
+Contract advertisements are backward compatible: legacy offers remain
+`[id, good, quantity]`, band-limited ones append the requested band as a
+fourth field, and long-haul offers use five fields with an empty-band
+placeholder and a two-or-more-resource manifest. Older peers ignore offers
+whose format they do not understand; at least one simple offer remains on
+each refreshed three-contract board. Warehouse inventory persists between
+days, and an entire manifest is reserved together only when the operator
+prepares the delivery.
+
+When configured with `--rigctld-host` (and optional `--rigctld-port`), the
+server sends only the read-frequency `f` request to Hamlib rigctld. The
+observed band is displayed and first-time bands earn one bounded discovery
+bonus each. For a band-limited contract the *sending client* checks the rig's
+current band again immediately before both manual transmission and recovery
+retries. It does not tune the rig, key PTT, or prove the physical transmit
+band to the recipient. Band names are gameplay classifications, not operating
+privileges or a regulatory band plan.
+
+Neighbor reports currently support two-hop **discovery only**. True
+multi-hop cargo custody, operator acceptance, forwarding and final settlement
+are future protocol work; a report about a neighbor is not a delivery route.
 
 Credit awards are based on the bytes received, capped at 25 credits per frame.
 Receipts carry the reward for their reply bytes. The receiver persists pending

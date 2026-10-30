@@ -22,6 +22,7 @@ from .network import Network
 from . import modems
 from .data2g import Data2GClient, Data2GError
 from . import radio_exchange
+from . import rigctld
 
 WEB = Path(__file__).with_name("web")
 MODEM_CATALOG = Path(__file__).with_name("modem-modes.json")
@@ -33,9 +34,13 @@ MAX_REPLY_ATTEMPTS = 5
 
 class App:
     def __init__(self, save: Path, seed: int, callsign: str, data2g_host="127.0.0.1",
-                 command_port=8300, kiss_port=8100, group="TRADENET"):
+                 command_port=8300, kiss_port=8100, group="TRADENET",
+                 rigctld_host=None, rigctld_port=4532):
         self.callsign = callsign
         self.data2g = (data2g_host, command_port, kiss_port, group)
+        self.rigctld = (rigctld_host, rigctld_port) if rigctld_host else None
+        self.rig_status = {"status": "connecting" if self.rigctld else "disabled",
+                           "frequency_hz": None, "band": None, "updated_at": None}
         self.save = save
         self.radio_save = save.with_suffix(".radio.json")
         self.radio_contacts = {}
@@ -129,6 +134,49 @@ class App:
         self.radio_recovery = threading.Thread(target=self._run_radio_recovery,
                                                name="tradenet-radio-recovery", daemon=True)
         self.radio_recovery.start()
+        if self.rigctld:
+            self.rig_monitor = threading.Thread(target=self._poll_rig_frequency,
+                                                name="tradenet-rigctld-monitor", daemon=True)
+            self.rig_monitor.start()
+
+    def _poll_rig_frequency(self):
+        """Rig telemetry is read-only; a band sighting earns one bounded bonus."""
+        while True:
+            try:
+                frequency = rigctld.read_frequency(*self.rigctld)
+                self._record_rig_frequency(frequency)
+            except (OSError, ValueError) as exc:
+                with self.lock:
+                    self.rig_status = {"status": "offline", "frequency_hz": None,
+                                       "band": None, "updated_at": None,
+                                       "error": str(exc)[:120]}
+            time.sleep(3)
+
+    def _record_rig_frequency(self, frequency):
+        band = rigctld.band_for_frequency(frequency)
+        with self.lock:
+            self.rig_status = {"status": "online", "frequency_hz": frequency,
+                               "band": band, "updated_at": time.time()}
+            if band and band not in self.game.radio_bands_seen:
+                self.game.radio_bands_seen.append(band)
+                self.game.credits += 60
+                self.game.factions["explorers"] += 1
+                self.game.journal.append({"id": "rig-band-" + band,
+                    "tick": self.game.tick, "action": "discover_radio_band",
+                    "result": {"band": band, "reward": 60}})
+                self.persist()
+
+    def _verify_contract_band(self, required_band):
+        if not required_band:
+            return
+        if not getattr(self, "rigctld", None):
+            raise GameError(f"{required_band} contract: connect rigctld to verify the tuned band.")
+        try:
+            frequency = rigctld.read_frequency(*self.rigctld)
+        except (OSError, ValueError) as exc:
+            raise GameError("Rig frequency unavailable; band-limited delivery cannot transmit.") from exc
+        if rigctld.band_for_frequency(frequency) != required_band:
+            raise GameError(f"Contract requires {required_band}; tune your rig before sending.")
 
     def _listen_for_frames(self):
         """Continuously receive group frames; classify addressed traffic and gossip."""
@@ -169,8 +217,9 @@ class App:
                 modem.send_once(packet, approved=True)
         return packets
 
-    def _send_recovery_payload(self, payload, mode_id=None, indices=None):
+    def _send_recovery_payload(self, payload, mode_id=None, indices=None, required_band=None):
         """Queue a saved message or selected parts without holding the game lock."""
+        self._verify_contract_band(required_band)
         host, command_port, kiss_port, group = self.data2g
         packets = radio_exchange.frames(payload)
         if indices is not None:
@@ -215,11 +264,11 @@ class App:
                 if work is None:
                     time.sleep(2)
                     continue
-                kind, key, payload, mode_id, indices = work
+                kind, key, payload, mode_id, indices, required_band = work
                 try:
-                    self._send_recovery_payload(payload, mode_id, indices)
+                    self._send_recovery_payload(payload, mode_id, indices, required_band)
                     error = None
-                except (Data2GError, OSError, ValueError, IndexError) as exc:
+                except (Data2GError, GameError, OSError, ValueError, IndexError) as exc:
                     error = str(exc)
                 with self.lock:
                     self._finish_radio_recovery_work(kind, key, error, indices)
@@ -241,7 +290,7 @@ class App:
                 item["attempts"] = item.get("attempts", 0) + 1
                 item["due_at"] = now + 15 * 2 ** (item["attempts"] - 1)
                 self.persist()
-                return "reply", key, bytes.fromhex(item["payload_hex"]), None, None
+                return "reply", key, bytes.fromhex(item["payload_hex"]), None, None, None
             for key, assembly in list(self.radio_assemblies.items()):
                 if (assembly.get("destination") != self.callsign or
                         assembly.get("repair_attempts", 0) >= MAX_REPAIR_REQUESTS or
@@ -264,7 +313,7 @@ class App:
                 assembly["repair_attempts"] = assembly.get("repair_attempts", 0) + 1
                 assembly["repair_due_at"] = now + PART_IDLE_SECONDS * assembly["repair_attempts"]
                 self.persist()
-                return "repair_request", key, payload, None, None
+                return "repair_request", key, payload, None, None, None
             for key, job in self.radio_transmissions.items():
                 if job.get("status") != "awaiting_ack":
                     continue
@@ -278,13 +327,13 @@ class App:
                     job["repair_send_attempts"] = job.get("repair_send_attempts", 0) + 1
                     payload = bytes.fromhex(job["payload_hex"])
                     self.persist()
-                    return "repair_parts", key, payload, job.get("mode_id"), indices
+                    return "repair_parts", key, payload, job.get("mode_id"), indices, job.get("band")
                 if job.get("retry_due_at", now + 1) <= now and job.get("payload_hex"):
                     job.pop("retry_due_at", None)
                     job["auto_retry_count"] = job.get("auto_retry_count", 0) + 1
                     job["timeout_at"] = now + job.get("timeout_seconds", 180) + 20
                     self.persist()
-                    return "retry", key, bytes.fromhex(job["payload_hex"]), job.get("mode_id"), None
+                    return "retry", key, bytes.fromhex(job["payload_hex"]), job.get("mode_id"), None, job.get("band")
         return None
 
     def _finish_radio_recovery_work(self, kind, key, error, indices):
@@ -575,9 +624,19 @@ class App:
                               if c["id"] == contract_id and c.get("status", "open") == "open"), None)
                 accepted = bool(had_contact and local and good == local["good"] and quantity == local["quantity"]
                                 and type(quantity) is int and 0 < quantity <= 10000)
+                if accepted and local.get("requirements"):
+                    manifest = envelope.get("m")
+                    accepted = bool(isinstance(manifest, list) and
+                        len(manifest) == len(local["requirements"]) and
+                        all(isinstance(term, list) and len(term) == 2 and
+                            isinstance(term[0], str) and type(term[1]) is int
+                            for term in manifest) and
+                        dict((term[0], term[1]) for term in manifest) ==
+                        radio_exchange.contract_requirements(local))
                 replacement = []
                 if accepted:
-                    self.game.ports["Haven"]["stock"][good] += quantity
+                    for resource, amount in radio_exchange.contract_requirements(local).items():
+                        self.game.ports["Haven"]["stock"][resource] += amount
                     local["status"] = "fulfilled"
                     self._ensure_radio_contracts()
                     replacement = [c for c in self.radio_contracts[self.callsign]
@@ -652,8 +711,11 @@ class App:
             if job.get("purpose") == "delivery":
                 reservation = self.radio_reservations.get(job.get("contract_id"))
                 if reservation:
-                    job["reward"] = min(1500, 100 +
-                        BASE_PRICE[reservation["good"]] * reservation["quantity"] * 2)
+                    goods = reservation.get("goods") or {
+                        reservation["good"]: reservation["quantity"]}
+                    job["reward"] = min(3000 if len(goods) > 1 else 1500,
+                        100 + sum(BASE_PRICE[resource] * count * 2
+                                  for resource, count in goods.items()))
                     self.game.credits += job["reward"]
             else:
                 job["reward"] = max(0, min(25, reward,
@@ -690,7 +752,9 @@ class App:
         reservation = self.radio_reservations.pop(job.get("contract_id"), None)
         if reservation:
             stock = self.game.export_warehouse
-            stock[reservation["good"]] = stock.get(reservation["good"], 0) + reservation["quantity"]
+            for resource, amount in (reservation.get("goods") or
+                    {reservation["good"]: reservation["quantity"]}).items():
+                stock[resource] = stock.get(resource, 0) + amount
 
     def _sync_discovered_galaxies(self):
         """Direct stations get local NPC models, never remote ledger authority."""
@@ -821,6 +885,8 @@ class App:
                 "radio_resources": deepcopy(self.radio_resources),
                 "radio_reservations": deepcopy(self.radio_reservations),
                 "radio_listener_status": self.radio_listener_status,
+                "rig": deepcopy(getattr(self, "rig_status", {
+                    "status": "disabled", "frequency_hz": None, "band": None})),
                 "radio_pending_receipts": len(self.radio_pending_replies),
                 "clock": {"epoch": self.game.clock_epoch,
                           "tick_seconds": self.game.tick_seconds,
@@ -871,6 +937,9 @@ class App:
                     "n": self._radio_neighbors(exclude=station,
                         limit=8 if contract["quantity"] >= 5 else 1,
                         detail=contract["quantity"] >= 5)}
+                if contract.get("requirements"):
+                    message["m"] = [[good, count] for good, count in
+                                    radio_exchange.contract_requirements(contract).items()]
             else:
                 raise GameError("Choose first contact or a contracted delivery.")
             if purpose == "delivery" and reservation.get("payload_hex"):
@@ -903,6 +972,8 @@ class App:
                     raise GameError("Select a ready ship with at least 10 condition and no active transmission.")
                 if ship.get("location") != "Haven" or ship.get("destination"):
                     raise GameError("Radio expeditions depart only from your Haven home base.")
+                if purpose == "delivery":
+                    self._verify_contract_band(contract.get("band"))
                 if purpose == "delivery" and not reservation.get("payload_hex"):
                     reservation["payload_hex"] = payload.hex()
                     self.persist()
@@ -933,6 +1004,7 @@ class App:
                        "payload_hash": hashlib.sha256(payload).hexdigest()[:16], "purpose": purpose,
                        "payload_hex": payload.hex(), "auto_retry_count": 0,
                        "mode_id": mode_id, "ship_id": ship["id"],
+                       "band": contract.get("band") if purpose == "delivery" else None,
                        "origin": ship["location"],
                        "destination": station,
                        "bytes": len(payload), "frames": len(packets),
@@ -960,13 +1032,20 @@ class App:
                 raise GameError("This contract already has goods reserved.")
             if self.game.ship.get("location") != "Haven" or self.game.ship.get("destination"):
                 raise GameError("Return to Haven to prepare a radio delivery.")
-            good, quantity = contract["good"], contract["quantity"]
-            if self.game.export_warehouse.get(good, 0) < quantity:
-                raise GameError("Not enough imported freight in the Haven export warehouse. Buy it at another starport, fly home, and unload it first.")
-            self.game.export_warehouse[good] -= quantity
-            self.radio_reservations[contract_id] = {"station": station, "good": good,
-                "quantity": quantity, "message_id": uuid.uuid4().hex[:16], "prepared_at": time.time()}
-            result = {"contract_id": contract_id, "good": good, "quantity": quantity, "status": "reserved"}
+            goods = radio_exchange.contract_requirements(contract)
+            if any(self.game.export_warehouse.get(good, 0) < quantity
+                   for good, quantity in goods.items()):
+                missing = [f"{good} {self.game.export_warehouse.get(good, 0)}/{quantity}"
+                           for good, quantity in goods.items()
+                           if self.game.export_warehouse.get(good, 0) < quantity]
+                raise GameError("Complete the Haven export manifest first: " + ", ".join(missing))
+            for good, quantity in goods.items():
+                self.game.export_warehouse[good] -= quantity
+            self.radio_reservations[contract_id] = {"station": station,
+                "good": contract["good"], "quantity": contract["quantity"],
+                "goods": deepcopy(goods), "message_id": uuid.uuid4().hex[:16],
+                "prepared_at": time.time()}
+            result = {"contract_id": contract_id, "goods": deepcopy(goods), "status": "reserved"}
         elif action in ("discover", "dispatch_contract", "accept_contract",
                         "cancel_contract", "reclaim_contract",
                         "exchange_dispatch", "exchange_settle", "exchange_cancel",
@@ -987,8 +1066,10 @@ class App:
 
 
 def serve(host="127.0.0.1", port=8765, save="galaxy.json", seed=42, callsign="AG7SU",
-          data2g_host="127.0.0.1", command_port=8300, kiss_port=8100, group="TRADENET"):
-    app = App(Path(save), seed, callsign, data2g_host, command_port, kiss_port, group)
+          data2g_host="127.0.0.1", command_port=8300, kiss_port=8100, group="TRADENET",
+          rigctld_host=None, rigctld_port=4532):
+    app = App(Path(save), seed, callsign, data2g_host, command_port, kiss_port,
+              group, rigctld_host, rigctld_port)
 
     class Handler(BaseHTTPRequestHandler):
         def respond(self, status, obj):
@@ -1064,6 +1145,8 @@ def main():
     parser.add_argument("--command-port", type=int, default=8300)
     parser.add_argument("--kiss-port", type=int, default=8100)
     parser.add_argument("--group", default="TRADENET")
+    parser.add_argument("--rigctld-host", help="Hamlib rigctld hostname/IP (read-only, optional)")
+    parser.add_argument("--rigctld-port", type=int, default=4532)
     args = parser.parse_args()
     serve(**vars(args))
 

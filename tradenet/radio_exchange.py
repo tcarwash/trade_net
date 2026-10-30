@@ -9,6 +9,7 @@ import math
 from copy import deepcopy
 
 from .engine import Game, GOODS, RARE
+from .rigctld import CONTRACT_BANDS
 
 MAX_FRAME_BYTES = 200
 MAX_MESSAGE_BYTES = 4096
@@ -105,15 +106,31 @@ def generate_contracts(game: Game, station: str, serial: int = 1,
         _, shortage, good = max(candidates)
         quantity = min(5 if good in RARE else 10, max(1, shortage))
         contract_id = f"{station}-C{serial:04d}"
+        number = serial
         serial += 1
-        contracts.append({"id": contract_id, "issuer": station, "good": good,
-                          "quantity": quantity, "status": "open"})
+        contract = {"id": contract_id, "issuer": station, "good": good,
+                    "quantity": quantity, "status": "open"}
+        # Three rotating offers: simple, a larger two-resource long haul, and
+        # a band-specific run. Long-haul inventory can accumulate over days.
+        if number % 3 == 2:
+            other = next(g for g in GOODS if g != good and g not in RARE)
+            contract["quantity"] = min(20, max(quantity + 4, 8))
+            contract["requirements"] = {
+                good: contract["quantity"], other: 4 + number % 4}
+            contract["kind"] = "longhaul"
+        elif number % 3 == 0:
+            contract["band"] = CONTRACT_BANDS[(number // 3 - 1) % len(CONTRACT_BANDS)]
+        contracts.append(contract)
         occupied.add((good, "open"))
     return contracts, serial
 
 
 def wire_contracts(contracts: list[dict], limit=3):
-    return [[item["id"], item["good"], item["quantity"]]
+    return [[item["id"], item["good"], item["quantity"]] +
+            ([item.get("band", "")] if item.get("requirements") else
+             [item["band"]] if item.get("band") in CONTRACT_BANDS else []) +
+            ([[[good, amount] for good, amount in item["requirements"].items()]]
+             if item.get("requirements") else [])
             for item in contracts if item.get("status", "open") == "open"][:limit]
 
 
@@ -122,10 +139,32 @@ def read_contracts(items, issuer: str):
     if not isinstance(items, list):
         return result
     for item in items[:8]:
-        if (not isinstance(item, list) or len(item) != 3 or
+        if (not isinstance(item, list) or len(item) not in (3, 4, 5) or
                 not isinstance(item[0], str) or not 1 <= len(item[0]) <= 32 or
-                item[1] not in GOODS or type(item[2]) is not int or not 1 <= item[2] <= 10000):
+                item[1] not in GOODS or type(item[2]) is not int or not 1 <= item[2] <= 10000 or
+                (len(item) >= 4 and item[3] not in (*CONTRACT_BANDS, ""))):
             continue
-        result.append({"id": item[0], "issuer": issuer, "good": item[1],
-                       "quantity": item[2], "status": "open"})
+        contract = {"id": item[0], "issuer": issuer, "good": item[1],
+                    "quantity": item[2], "status": "open"}
+        if len(item) >= 4 and item[3]:
+            contract["band"] = item[3]
+        if len(item) == 5:
+            terms = item[4]
+            if (not isinstance(terms, list) or not 2 <= len(terms) <= 4 or
+                    any(not isinstance(term, list) or len(term) != 2 or
+                        term[0] not in GOODS or type(term[1]) is not int or
+                        not 1 <= term[1] <= 100 for term in terms)):
+                continue
+            requirements = dict(terms)
+            if (len(requirements) != len(terms) or
+                    requirements.get(item[1]) != item[2]):
+                continue
+            contract["requirements"] = requirements
+            contract["kind"] = "longhaul"
+        result.append(contract)
     return result
+
+
+def contract_requirements(contract: dict) -> dict[str, int]:
+    """Normalize legacy single-commodity and long-haul freight manifests."""
+    return contract.get("requirements") or {contract["good"]: contract["quantity"]}

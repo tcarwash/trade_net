@@ -65,8 +65,17 @@ dispatch contract without Data2G, and expired effects are removed.
 
 ## Phase 2 — Multi-stage expeditions and encounters
 
+- [x] First two authored three-leg expeditions: **The Long Night** (medical
+      relief) and **Echoes of Eidolon** (relay restoration or salvage).
+- [x] Accept at Haven, secure actual purchased cargo, deliver it, make a
+      consequential faction choice, and return to Haven for payout.
+- [x] Saved progress, command replay protection, voluntary abandonment with
+      cargo retained, and a soft quick-return bonus rather than offline failure.
+- [x] Touch-friendly mission cards, waypoint progress, and stage/finish modals.
 - [ ] Add a typed mission state machine: offered → accepted → steps →
       completed/failed/abandoned, with reward escrow and idempotent steps.
+      (The first expedition state machine is implemented; richer failure and
+      escrow rules remain.)
 - [ ] Create 12–20 encounter cards with genuine choices: rescue vs deadline,
       pirate toll vs pursuit, divert fuel vs cargo, salvage vs safety.
 - [ ] Add chain templates: medical convoy, missing ship, rare-material hunt,
@@ -136,6 +145,12 @@ antagonizing them in subsequent encounters.
 
 ## Phase 8 — Radio frontier
 
+- [x] Optional read-only Hamlib rigctld frequency polling and persisted band
+      passport (+60 credits once per newly observed band; no PTT or tuning).
+- [x] Some contracts request a specific band; manual dispatch and automated
+      recovery re-check the tuned frequency before sending their frames.
+- [x] Persistent two-resource long-haul manifests that can be stocked at Haven
+      across multiple sessions, reserved atomically, and settled on one ACK.
 - [ ] Local-only practice contacts and simulated neighbor discovery behind a
       **◇** simulation adapter; keep them out of live federation state.
 - [ ] Distinct **◉** verified contacts, **○** hearsay, RF signal metrics and
@@ -144,6 +159,27 @@ antagonizing them in subsequent encounters.
       pay-to-win or dependence on a successful on-air session.
 - [ ] Frame budgets, interference-safe retry policies, full receipts, link
       restoration, and identity/authentication before broad deployment.
+
+### Store-and-forward, multi-hop freight (not yet implemented)
+
+Current second-hop reports are **discovery intelligence**, not authority to
+deliver to a remote galaxy through an intermediate station. Do not allow a
+direct-only delivery to claim a multi-hop settlement.
+
+- [ ] A route manifest names the origin, destination, ordered/interchangeable
+      relay operators, every resource, a deadline window measured in days, and
+      the destination's acceptance conditions.
+- [ ] A relay must explicitly accept custody before a sender is cleared, and
+      the receiver keeps a persistent inventory of in-transit manifests.
+- [ ] Each hop issues a content-bound receipt with stable shipment ID and hop
+      sequence. Replays cannot advance custody twice or duplicate inventory.
+- [ ] The final destination issues the settlement receipt; only then is the
+      agreed premium paid. Interrupted routes retain their last verified
+      custodian and can be resumed days later.
+- [ ] Expiry, refusal, return-to-sender and relay fees need explicit policy;
+      operator-chosen windows must prevent unattended RF sends.
+- [ ] Route hints from gossip are unverified until the next operator accepts
+      the manifest. An observed neighbor is never a proxy for its permission.
 
 **Done when:** the game stays fun offline and every real transmission is an
 intentional, legible operator action.

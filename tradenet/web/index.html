@@ -76,9 +76,11 @@ dialog.moment-dialog::backdrop{background:#030811ce;backdrop-filter:blur(8px)}.m
 @media(prefers-reduced-motion:reduce){.moment-art .art-orbit,.moment-art .art-star,.moment-dialog[open]{animation:none!important}}
 .sector-news{display:flex;align-items:center;gap:16px;padding:13px 16px;border:1px solid #4e665b;border-left:4px solid #d7b774;border-radius:10px;background:linear-gradient(100deg,#2b3029,#102332);margin-bottom:16px}.sector-news[hidden]{display:none}.signal-mark{display:inline-grid;place-items:center;flex:0 0 38px;width:38px;height:38px;border:1px solid #7a7c60;border-radius:10px;color:#f4d199;font:25px var(--mono);background:#41362465}.sector-news .news-body{min-width:0;flex:1}.sector-news h3{font-size:14px;margin:2px 0 3px}.sector-news p{font-size:11px;color:#b8ccce;margin:0}.sector-news button{min-height:38px;font-size:11px}.signal-legend{display:flex;flex-wrap:wrap;gap:15px;margin:4px 0 16px;color:#adc7d4;font:11px var(--mono)}.signal-legend span:first-child{color:#f0c688}.signal-legend span:last-child{color:#8bdddb}.dispatch-signal{border:1px solid #485a58;background:linear-gradient(135deg,#292d28,#112432);border-radius:10px;padding:14px;margin-bottom:10px}.dispatch-signal .tag{font:11px var(--mono);color:#e4be82}.dispatch-signal h3{margin:6px 0;font-size:15px}.dispatch-signal p{font-size:12px;color:#adc3d0}.dispatch-signal button{min-height:38px}.contract-card[data-kind=dispatch]{border-top-color:#e5b976}
 @media(max-width:600px){.sector-news{flex-wrap:wrap;gap:10px}.sector-news .signal-mark{width:32px;height:32px;flex-basis:32px}.sector-news button{width:100%}}
+.expedition-board{margin-bottom:16px}.expedition-board h3{margin:0 0 8px}.expedition-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px}.expedition-card{padding:16px;border:1px solid #425e6b;border-radius:12px;background:linear-gradient(145deg,#142b3a,#15212f);display:flex;flex-direction:column;gap:10px}.expedition-card[data-status=accepted]{border-color:#c8a86d;box-shadow:inset 0 2px #c8a86d55}.expedition-card[data-status=completed]{opacity:.8}.expedition-card h4{font-size:17px;margin:0}.expedition-card p{margin:0;color:#adc6d0;font-size:12px}.expedition-meta{color:#f4d39d;font:11px var(--mono);letter-spacing:.06em}.expedition-stages{list-style:none;margin:2px 0;padding:0;display:flex;flex-wrap:wrap;gap:7px}.expedition-stages li{border:1px solid #516673;border-radius:99px;padding:5px 9px;color:#99adbd;font:10px var(--mono)}.expedition-stages li.current{background:#4b4835;color:#ffe2a1;border-color:#c6a86f}.expedition-stages li.done{color:#83d9bd;border-color:#528875}.expedition-actions{display:grid;gap:8px;margin-top:auto}.expedition-actions button{min-height:44px;white-space:normal;text-align:center}.expedition-actions small{display:block;font-size:11px;font-weight:normal;opacity:.85}.expedition-step{font-size:12px;font-weight:700;color:#edf2eb}.expedition-note{color:#9ab0bb;font:11px var(--mono)}@media(max-width:600px){.expedition-grid{grid-template-columns:1fr}}
+.band-passport{margin-bottom:14px;padding:12px;border:1px solid #456174;border-radius:10px;background:#122631}.band-passport .passport-stamps{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.passport-stamps span{padding:4px 9px;border-radius:16px;border:1px solid #698f92;color:#a8f0e3;font:11px var(--mono)}.band-requirement{color:#e4bc85;font-weight:700}
 </style></head><body>
 <a href="#command" class="skip-link">Skip to command deck</a>
-<header><a class="brand" href="#command" aria-label="Trade Net command"><div class="brand-mark" aria-hidden="true"><span>✧</span></div><div><h1>TRADE NET</h1><small>Frontier command</small></div></a><div class="header-tools"><span id="modemBadge" class="pill">MODEM · CHECKING</span><span id="saveIndicator" class="save-indicator" role="status">Connecting…</span><span id="clockDisplay">Connecting to economy…</span><button id="debugToggle" class="secondary" type="button" aria-pressed="false">Debug: Off</button></div></header>
+<header><a class="brand" href="#command" aria-label="Trade Net command"><div class="brand-mark" aria-hidden="true"><span>✧</span></div><div><h1>TRADE NET</h1><small>Frontier command</small></div></a><div class="header-tools"><span id="modemBadge" class="pill">MODEM · CHECKING</span><span id="rigBadge" class="pill">RIG · NO CONNECTION</span><span id="saveIndicator" class="save-indicator" role="status">Connecting…</span><span id="clockDisplay">Connecting to economy…</span><button id="debugToggle" class="secondary" type="button" aria-pressed="false">Debug: Off</button></div></header>
 <nav class="deck-nav" aria-label="Command deck"><div class="nav-inner" role="tablist" aria-label="Command stations"><button id="tabCommand" role="tab" aria-selected="true" aria-controls="commandView" data-view="command" type="button"><span class="tab-icon" aria-hidden="true">✦</span><span>Flight deck</span></button><button id="tabFleet" role="tab" aria-selected="false" aria-controls="fleetPanel" data-view="fleet" tabindex="-1" type="button"><span class="tab-icon" aria-hidden="true">⌁</span><span>Fleet</span></button><button id="tabContracts" role="tab" aria-selected="false" aria-controls="contractsPanel" data-view="contracts" tabindex="-1" type="button"><span class="tab-icon" aria-hidden="true">▤</span><span>Contracts</span></button><button id="tabComms" role="tab" aria-selected="false" aria-controls="commsPanel" data-view="comms" tabindex="-1" type="button"><span class="tab-icon" aria-hidden="true">◉</span><span>Comms</span></button><span class="nav-label">LOCAL FLIGHTS · HUB-TO-HUB TRANSMISSIONS</span></div></nav>
 <div id="feedback" class="feedback" role="status" aria-live="polite"></div>
 <dialog id="momentDialog" class="moment-dialog" aria-labelledby="momentTitle" aria-describedby="momentDescription"><div class="moment-shell"><button id="momentClose" class="moment-close" aria-label="Dismiss event" type="button">×</button><div id="momentArt" class="moment-art" aria-hidden="true"></div><div id="momentCategory" class="moment-category"></div><h2 id="momentTitle"></h2><p id="momentDescription"></p><strong id="momentReward" class="moment-reward" hidden></strong><div class="moment-footer"><small id="momentDetail"></small><button id="momentContinue" type="button">Continue</button></div></div></dialog>
@@ -95,7 +97,7 @@ dialog.moment-dialog::backdrop{background:#030811ce;backdrop-filter:blur(8px)}.m
 <section class="panel" id="exchangePanel" aria-labelledby="exchangeHeading"><div class="panel-heading"><div><span class="eyebrow">Communications / partner hubs</span><h2 id="exchangeHeading">Hub transmissions</h2></div><span class="panel-index">05 / COMMS</span></div><p class="muted">Your receiver is always listening. Make first contact to exchange resource reports and contracts; later transmissions fulfill the receiving hub’s contract.</p><div id="exchange" class="cols"></div><form id="exchangeForm" style="margin-top:12px"><div class="cols"><label>Partner callsign<input id="radioStation" name="station" list="radioStations" maxlength="10" autocomplete="off" placeholder="Enter a callsign" pattern="[A-Za-z0-9/-]{1,10}" required></label><datalist id="radioStations"></datalist><label>Contract from partner<select id="radioContract" name="contract_id"></select></label></div><label>Data2G mode<select id="radioMode" name="mode_id"><option value="">Load transmit modes</option></select></label><div class="row"><button name="action" value="radio_status" type="button" id="connectModem" class="secondary">Load transmit modes</button><button name="action" value="radio_contact">📡 Expedition: first contact</button><button name="action" value="exchange_reserve">Prepare requested goods</button><button name="action" value="radio_delivery">📡 Deliver contracted goods</button></div><p id="txSummary" class="muted" style="margin-top:12px">Incoming frames are handled automatically, including transmissions meant for other stations.</p></form><div id="mailStatus" class="muted" style="margin-top:12px"></div><div id="radioInbox" class="muted" role="log" aria-label="Received radio frames" style="margin-top:8px"></div><div id="txJourney" class="tx-journey" hidden role="status" aria-label="Waiting for receiver acknowledgment"><svg viewBox="0 0 700 72" aria-hidden="true"><path id="txRoute" class="tx-route" d="M30 40 C190 3 490 69 670 34"/><circle class="tx-endpoint" cx="30" cy="40" r="5"/><circle class="tx-endpoint" cx="670" cy="34" r="5"/><g id="txShip" class="tx-ship"><animateMotion dur="5s" repeatCount="indefinite" rotate="auto"><mpath href="#txRoute"/></animateMotion><path d="M-9 -6 L10 0 -9 6 -4 0Z" fill="#89e8ed"/><path d="M-8 0 -15 -4 -13 0 -15 4Z" fill="#e9bc78"/></g><text x="30" y="68" fill="#92a6b8" font-size="10">LOCAL HUB</text><text id="txDestination" x="670" y="68" text-anchor="end" fill="#92a6b8" font-size="10">PARTNER HUB</text></svg><div class="tx-progress" role="progressbar" aria-label="Waiting for receiver acknowledgment" aria-valuetext="Awaiting receiver acknowledgment"></div><div class="tx-caption"><span id="txJourneyLabel">Frame sent · waiting for the partner hub</span><span>Awaiting receiver signal</span></div></div><p id="radioReceipt" class="muted" role="status"></p></section>
 </main><footer><span>TRADE NET / FRONTIER COMMAND</span><span>Data2G operator controlled</span><span id="connectionStatus" role="status">Connecting…</span></footer>
 <script>
-let state=null, counter=0, activeRadioJobId=null, radioReturnTimer=null,lastSavedAt=null,feedbackTimer=null,nextActionView='contracts',nextActionDestination='',nextActionGood='',nextActionCommand=null,nextActionArgs={},currentContractsFilter='all';
+let state=null, counter=0, activeRadioJobId=null, radioReturnTimer=null,lastSavedAt=null,feedbackTimer=null,nextActionView='contracts',nextActionDestination='',nextActionGood='',nextActionCommand=null,nextActionArgs={},currentContractsFilter='all',pendingAbandonExpedition='';
 let momentsReady=false,seenJournal=new Set(),priorFlights=new Map(),priorRadio=new Map(),priorDispatch=new Set(),momentQueue=[],activeMoment=null;
 let guideStep=Number(sessionStorage.getItem('trade-net-guide-step')||0),guideJobId=sessionStorage.getItem('trade-net-guide-job')||'';
 const el=id=>document.getElementById(id);
@@ -108,6 +110,9 @@ function milestoneFor(entry){
   if(entry.action==='deliver_local')return{kind:'reward',category:'CONTRACT FULFILLED',title:'Freight delivered',description:'Your cargo was accepted at the destination port. Another trade contract is now available.',reward:`+${(result.reward||0).toLocaleString()} credits`,detail:'CARGO MANIFEST SETTLED'};
   if(entry.action==='deliver_vip')return{kind:'reward',category:'PASSENGER ARRIVED',title:result.title||'VIP delivered',description:'Your passenger reached their destination safely. Diplomatic standing has improved.',reward:`+${(result.reward||0).toLocaleString()} credits`,detail:'PASSENGER MANIFEST CLOSED'};
   if(entry.action==='complete_story')return{kind:'story',category:'FRONTIER SIGNAL · CHAPTER COMPLETE',title:result.title||'A new chapter',description:result.next?.complete?'You have completed the frontier campaign. The rest of the galaxy is yours to explore.':`Next chapter: ${result.next?.title||'Awaiting orders'}.`,reward:`+${(result.reward||0).toLocaleString()} credits`,detail:'CAMPAIGN PROGRESS SAVED'};
+  if(entry.action==='accept_expedition')return{kind:'story',category:'EXPEDITION ACCEPTED',title:result.title,description:`First waypoint: ${result.next?.port}. ${result.next?.description||''}`,detail:'MISSION JOURNAL UPDATED'};
+  if(entry.action==='advance_expedition')return result.completed?{kind:'reward',category:'EXPEDITION COMPLETED',title:result.title,description:`You returned to Haven and closed the ${result.title} expedition. Your choice and reputation are now part of your captain's record.`,reward:`+${(result.reward||0).toLocaleString()} credits`,detail:'MISSION REPORT FILED'}:{kind:'story',category:'EXPEDITION MILESTONE',title:result.stage_title,description:`Next stop: ${result.next?.port}. ${result.next?.description||''}`,detail:'ROUTE UPDATED'};
+  if(entry.action==='discover_radio_band')return{kind:'discovery',category:'BAND PASSPORT · RIG TUNED',title:`${result.band} charted`,description:'You discovered a new amateur band using your connected rig. Your expedition log has been updated; no transmission was made.',reward:`+${result.reward} credits`,detail:'FREQUENCY TELEMETRY ONLY'};
   if(entry.action==='purchase_ship')return{kind:'fleet',category:'SHIP COMMISSIONED',title:result.class||'New ship acquired',description:'Your new vessel has joined the fleet. Select it in Fleet command to load cargo or set a course.',detail:'YOUR FLEET HAS GROWN'};
   if(entry.action==='buy_equipment')return{kind:'fleet',category:'OUTFITTING COMPLETE',title:`${result.item||'Equipment'} installed`,description:'A ship system has been upgraded. Check the route preview to see how this changes your options.',detail:result.ship_id||'SHIP READY'};
   if(entry.action==='travel'&&result.hazard?.kind!=='clear'&&result.hazard){let loss=Number(result.hazard_damage||0),toll=Number(result.hazard.toll||0);return{kind:'hazard',category:'HAZARD ENCOUNTER',title:result.hazard.label||'Dangerous route',description:result.hazard.outcome||'Your crew crossed a hazardous corridor. Your ship remains on course.',reward:[loss?`${loss} hull damage`:null,toll?`${toll} credits paid`:null].filter(Boolean).join(' · '),detail:'CHECK HULL CONDITION ON ARRIVAL'}}
@@ -145,6 +150,9 @@ function describeAction(action,result){
   if(action==='cancel_vip')return 'Passenger mission cancelled.';
   if(action==='buy_equipment')return `${result.item} installed on ${result.ship_id} for ${result.cost} credits.`;
   if(action==='complete_story')return `${result.title} completed · +${result.reward} credits. ${result.next.complete?'Story complete!':'Next: '+result.next.title}`;
+  if(action==='accept_expedition')return `${result.title} accepted. Next stop: ${result.next.port}.`;
+  if(action==='advance_expedition')return result.completed?`${result.title} completed · +${result.reward.toLocaleString()} credits.`:`${result.stage_title} complete. Next: ${result.next.port}.`;
+  if(action==='abandon_expedition')return `${result.title} returned to the mission board. Your cargo remains aboard.`;
   if(action==='unload_export')return `Unloaded ${result.amount} ${result.good} into Haven's export warehouse (${result.warehouse} in storage).`;
   if(action==='travel')return `Dispatched to ${result.destination}. Arrival in about ${result.travel_seconds}s. ${result.hazard?.kind==='clear'?'Clear corridor.':`${result.hazard.label}: ${result.hazard_damage} extra hull damage${result.hazard.toll?' and '+result.hazard.toll+' cr lost':''}.`}`;
   if(action==='purchase_ship')return `Purchased ${result.class} ${result.ship_id} for ${result.cost} credits.`;
@@ -411,7 +419,7 @@ function render(){
   upgrade.disabled=!docked||g.credits<holdCost;
   let maintenance=el('maintenanceQuote');if(!maintenance){maintenance=document.createElement('div');maintenance.id='maintenanceQuote';maintenance.className='hint';el('fleetForm').appendChild(maintenance)}
   maintenance.textContent=`Service costs: fuel ${refuelCost} cr · repair ${repairCost} cr · expand hold ${holdCost} cr`;
-  renderFleetManager();map();renderContracts();renderCampaign();renderObjective();renderExchange();renderDispatchSignals();renderSectorNews();renderRadioJourney();updateTradeQuote();updateRouteQuote();renderGuide();scanGameplayMoments();
+  renderFleetManager();map();renderContracts();renderExpeditions();renderCampaign();renderObjective();renderExchange();renderDispatchSignals();renderSectorNews();renderRadioJourney();updateTradeQuote();updateRouteQuote();renderGuide();scanGameplayMoments();
   el('selectedShipSummary').replaceChildren(shipPortrait('commandShipSprite',ship),document.createTextNode(ship.name+' · '+g.location+' · '+ship.fuel+' fuel'));
   el('name').previousElementSibling.textContent='Current galaxy';
 }
@@ -528,6 +536,14 @@ function updateRouteQuote(){
   setTravelLabel('Travel to '+destination);
 }
 function renderExchange(){
+  const rig=state.rig||{},tunedBand=rig.status==='online'?rig.band:null;
+  el('rigBadge').textContent=rig.status==='online'?`RIG · ${(rig.frequency_hz/1e6).toFixed(3)} MHz ${tunedBand||'—'}`:rig.status==='offline'?'RIG · DISCONNECTED':rig.status==='connecting'?'RIG · CONNECTING':'RIG · NOT CONFIGURED';
+  const passport=el('bandPassport');passport.replaceChildren();
+  let passportTitle=document.createElement('strong');passportTitle.textContent='⌁ Band passport · +60 cr for each new band tuned';passport.append(passportTitle);
+  let description=document.createElement('p');description.className='hint';description.textContent='Rigctld frequency readout only. Visiting a band never keys the rig or transmits Data2G.';passport.append(description);
+  let stamps=document.createElement('div');stamps.className='passport-stamps';
+  for(let band of state.game.radio_bands_seen||[]){let stamp=document.createElement('span');stamp.textContent='✓ '+band;stamps.append(stamp)}
+  if(!stamps.children.length){let empty=document.createElement('span');empty.textContent='No bands charted';stamps.append(empty)}passport.append(stamps);
   let container=el('exchange'),local=state.network.local_id,stations=Object.keys(state.radio_resources||{}).filter(id=>id!==local).sort();
   let warehouse=el('exportWarehouse'),g=state.game,eligible=g.ship.export_cargo||{},stored=g.export_warehouse||{};
   warehouse.querySelector('.warehouse-status').textContent=`Haven export warehouse: ${state.goods.filter(good=>stored[good]).map(good=>`${stored[good]} ${good}`).join(' · ')||'empty'}. Imported cargo aboard: ${state.goods.filter(good=>eligible[good]).map(good=>`${eligible[good]} ${good}`).join(' · ')||'none'}.`;
@@ -539,16 +555,18 @@ function renderExchange(){
   if(stationInput.value!==station&&stationInput.value.trim())stationInput.value=station;
   let contracts=(state.radio_contracts?.[station]||[]).filter(c=>c.status==='open');
   let contractSelect=el('radioContract'),oldContract=contractSelect.value;contractSelect.replaceChildren();
-  for(let c of contracts){let option=document.createElement('option');option.value=c.id;option.textContent=`Deliver ${c.quantity} ${c.good} · ${c.id}`;contractSelect.append(option)}
+  for(let c of contracts){let option=document.createElement('option');option.value=c.id;let goods=c.requirements?Object.entries(c.requirements).map(([good,qty])=>qty+' '+good).join(' + '):c.quantity+' '+c.good;option.textContent=`Deliver ${goods}${c.band?' · '+c.band+' only':''} · ${c.id}`;contractSelect.append(option)}
   if(contracts.some(c=>c.id===oldContract))contractSelect.value=oldContract;
   let selectedContract=contracts.find(c=>c.id===contractSelect.value),contacted=Boolean(state.radio_contacts?.[station]),reserved=Boolean(state.radio_reservations?.[contractSelect.value]);
+  let manifest=selectedContract?.requirements||(selectedContract?{[selectedContract.good]:selectedContract.quantity}:{}),stockReady=Object.entries(manifest).every(([good,qty])=>(stored[good]||0)>=qty),bandReady=!selectedContract?.band||tunedBand===selectedContract.band;
   let checks=[
     [g.location==='Haven'&&!g.ship.destination,'Dock a ship at Haven'],
     [contacted,'Establish verified first contact'],
-    [Boolean(selectedContract)&&(stored[selectedContract?.good]||0)>=selectedContract?.quantity||reserved,'Stock requested goods in export warehouse'],
+    [Boolean(selectedContract)&&(stockReady||reserved),'Stock requested goods in export warehouse'],
     [reserved,'Prepare the radio delivery'],
     [Boolean(el('radioMode').value),'Select a live Data2G mode']
   ];
+  if(selectedContract?.band)checks.push([bandReady,'Tune rig to '+selectedContract.band]);
   let checklist=el('commsChecklist');checklist.replaceChildren();for(let [done,label] of checks){let item=document.createElement('span');item.className='comms-step '+(done?'done':'');item.setAttribute('role','listitem');item.textContent=(done?'✓':'○')+' '+label;checklist.append(item)}
   let inbox=state.radio_inbox||[],listener=state.radio_listener_status||'reconnecting';
   let queued=state.radio_pending_receipts?` · ${state.radio_pending_receipts} receipt${state.radio_pending_receipts===1?'':'s'} queued`:'';
@@ -560,7 +578,7 @@ function renderExchange(){
     let contact=Boolean(state.radio_contacts?.[station]);let p=state.radio_resources?.[station]||{};
     summary.innerHTML='';let heading=document.createElement('b');heading.textContent=`${contact?'◉':'○'} ${station} · ${contact?'first contact complete':'not contacted'}`;
     let detail=document.createElement('p');detail.className='muted';detail.textContent=p.richness?`${p.richness}-rich · resource report received`:'Resource report will arrive with first contact.';summary.append(heading,detail);container.append(summary);
-    for(let c of contracts){let card=document.createElement('div');card.className='stat';card.textContent=`${c.quantity} ${c.good} requested by ${station} · ${c.id}`;container.append(card)}
+    for(let c of contracts){let card=document.createElement('div');card.className='stat';let goods=c.requirements?Object.entries(c.requirements).map(([good,qty])=>qty+' '+good).join(' + '):c.quantity+' '+c.good;card.textContent=`${goods} requested by ${station} · ${c.id}${c.band?' · '+c.band+' only':''}`;container.append(card)}
     if(!contracts.length&&contact){let empty=document.createElement('div');empty.className='stat';empty.textContent='No active partner contracts cached. The receiver will send the replacement contract with its delivery receipt.';container.append(empty)}
   }
   let actionJob=[...(state.radio_transmissions||[])].reverse().find(job=>job.destination===station);
@@ -570,8 +588,8 @@ function renderExchange(){
   let buttons=[...el('exchangeForm').querySelectorAll('button[name="action"]')];
   for(let button of buttons){
     if(button.value==='radio_contact'){button.hidden=Boolean(state.radio_contacts?.[station]);button.disabled=!/^[A-Z0-9/-]{1,10}$/.test(station)||station===local||!el('radioMode').value||Boolean(state.game.ship.radio_mission)||state.game.ship.condition<10||state.game.location!=='Haven'||Boolean(state.game.ship.destination)}
-    if(button.value==='exchange_reserve'){button.hidden=!state.radio_contacts?.[station];button.disabled=!contracts.length||!station||Boolean(state.radio_reservations?.[contractSelect.value])||Boolean(state.game.ship.radio_mission)||state.game.location!=='Haven'||Boolean(state.game.ship.destination)||((stored[selected?.good]||0)<(selected?.quantity||1))}
-    if(button.value==='radio_delivery')button.disabled=!state.radio_reservations?.[contractSelect.value]||!el('radioMode').value||Boolean(state.game.ship.radio_mission)||state.game.ship.condition<10||state.game.location!=='Haven'||Boolean(state.game.ship.destination);
+    if(button.value==='exchange_reserve'){button.hidden=!state.radio_contacts?.[station];button.disabled=!contracts.length||!station||Boolean(state.radio_reservations?.[contractSelect.value])||Boolean(state.game.ship.radio_mission)||state.game.location!=='Haven'||Boolean(state.game.ship.destination)||!stockReady}
+    if(button.value==='radio_delivery')button.disabled=!state.radio_reservations?.[contractSelect.value]||!el('radioMode').value||Boolean(state.game.ship.radio_mission)||state.game.ship.condition<10||state.game.location!=='Haven'||Boolean(state.game.ship.destination)||!bandReady;
   }
 }
 function showDispatchJob(jobId){
@@ -637,15 +655,75 @@ function renderContracts(){
   for(let c of offers){
     let card=document.createElement('div');card.className='stat contract-card';card.dataset.kind='radio';card.hidden=currentContractsFilter!=='all'&&currentContractsFilter!=='radio';
     let contacted=Boolean(state.radio_contacts?.[c.station]);
-    let type=document.createElement('span');type.className='contract-type';type.textContent=(c.station===local||contacted?'◉ ':'○ ')+(c.station===local?'YOUR HUB REQUEST':contacted?'PARTNER REQUEST':'HEARD REQUEST');card.appendChild(type);
-    let title=document.createElement('h3');title.textContent=`Deliver ${c.quantity} ${c.good}`;card.appendChild(title);
+    let type=document.createElement('span');type.className='contract-type';type.textContent=(c.station===local||contacted?'◉ ':'○ ')+(c.station===local?'YOUR HUB REQUEST':contacted?'PARTNER REQUEST':'HEARD REQUEST')+(c.kind==='longhaul'?' · LONG-HAUL MANIFEST':'');card.appendChild(type);
+    let required=c.requirements||{[c.good]:c.quantity},goods=Object.entries(required).map(([good,qty])=>qty+' '+good).join(' + ');
+    let title=document.createElement('h3');title.textContent=`Deliver ${goods}`;card.appendChild(title);
     let detail=document.createElement('small');detail.textContent=`Requested by ${c.station} · ${c.id}`;card.appendChild(detail);
-    let stock=document.createElement('div');stock.className='hint';stock.textContent=c.station===local?'Other stations can fulfill this request.':contacted?`Export warehouse: ${state.game.export_warehouse?.[c.good]||0}/${c.quantity} · source goods outside Haven`:'Make first contact before delivering to this hub.';card.appendChild(stock);
+    if(c.band){let band=document.createElement('p');band.className='band-requirement';band.textContent='⌁ '+c.band+' band required · '+(state.rig?.band===c.band?'Rig tuned':'Tune your rig before dispatch');card.appendChild(band)}
+    let stock=document.createElement('div');stock.className='hint';stock.textContent=c.station===local?'Other stations can fulfill this request.':contacted?'Haven warehouse · '+Object.entries(required).map(([good,qty])=>`${state.game.export_warehouse?.[good]||0}/${qty} ${good}`).join(' · ')+' · source goods outside Haven; stockpile over multiple sessions.':'Make first contact before delivering to this hub.';card.appendChild(stock);
     if(c.station===local){board.appendChild(card);continue}
     let button=document.createElement('button');
     button.textContent=contacted?'Open in Comms':'Make first contact';
     button.addEventListener('click',()=>{setView('comms');el('radioStation').value=c.station;renderExchange();el('radioContract').value=c.id;renderExchange();el('exchangePanel').scrollIntoView({behavior:motionBehavior(),block:'start'})});
     card.appendChild(button);board.appendChild(card);
+  }
+}
+function plotExpeditionWaypoint(port){
+  setView('command');el('destination').value=port;mapMode='sector';map();updateRouteQuote();
+  el('mapPanel').scrollIntoView({behavior:motionBehavior(),block:'start'});
+}
+function renderExpeditions(){
+  const container=el('expeditionsPanel');container.replaceChildren();
+  const g=state.game,missions=Object.values(g.expeditions||{}),active=missions.find(m=>m.status==='accepted');
+  const heading=document.createElement('h3');heading.textContent='✦ Frontier expeditions';container.append(heading);
+  const intro=document.createElement('p');intro.className='hint';intro.textContent='Multi-stop stories with real cargo, decisions, and a return to Haven. Missions remain playable offline; quick returns earn a bonus.';container.append(intro);
+  const grid=document.createElement('div');grid.className='expedition-grid';container.append(grid);
+  for(const mission of missions.sort((a,b)=>(a.status==='accepted'?-1:a.status==='offered'?0:1)-(b.status==='accepted'?-1:b.status==='offered'?0:1))){
+    const card=document.createElement('article');card.className='expedition-card';card.dataset.status=mission.status;card.dataset.expeditionId=mission.id;
+    const meta=document.createElement('span');meta.className='expedition-meta';meta.textContent=mission.status==='completed'?'✓ EXPEDITION COMPLETE':mission.status==='accepted'?('ACTIVE · LEG '+(mission.stage+1)+' / '+mission.stages.length):'AVAILABLE AT HAVEN';
+    const title=document.createElement('h4');title.textContent=mission.title;
+    const description=document.createElement('p');description.textContent=mission.description;
+    const stages=document.createElement('ol');stages.className='expedition-stages';stages.setAttribute('aria-label','Mission waypoints');
+    for(let index=0;index<mission.stages.length;index++){
+      const step=mission.stages[index],node=document.createElement('li');node.textContent=step.port;
+      if(mission.status==='completed'||mission.status==='accepted'&&index<mission.stage)node.className='done';
+      else if(mission.status==='accepted'&&index===mission.stage)node.className='current';
+      stages.append(node);
+    }
+    const actions=document.createElement('div');actions.className='expedition-actions';
+    const reward=document.createElement('span');reward.className='expedition-meta';reward.textContent=mission.status==='completed'?`Earned ${(mission.payout||0).toLocaleString()} cr`:`Base reward ${mission.reward.toLocaleString()} cr · choice + punctual bonuses`;
+    const makeButton=(label,callback,disabled=false,secondary=false)=>{
+      const button=document.createElement('button');button.type='button';button.className=secondary?'secondary':'';button.textContent=label;button.disabled=disabled;button.addEventListener('click',callback);actions.append(button);return button;
+    };
+    const unavailable=Boolean(g.ship.destination||g.ship.radio_mission),inHomeGalaxy=g.ship.galaxy==='home';
+    if(mission.status==='offered'){
+      if(active)makeButton('Finish '+active.title+' first',()=>{},true,true);
+      else if(!inHomeGalaxy)makeButton('Return to your home galaxy to accept',()=>{},true,true);
+      else if(g.location!=='Haven')makeButton('Plot Haven to accept',()=>plotExpeditionWaypoint('Haven'));
+      else makeButton('Accept expedition',()=>command('accept_expedition',{expedition_id:mission.id}),unavailable);
+    }else if(mission.status==='accepted'){
+      const step=mission.stages[mission.stage];
+      const name=document.createElement('strong');name.className='expedition-step';name.textContent=step.title+' · '+step.port;actions.append(name);
+      const details=document.createElement('p');details.textContent=step.description;actions.append(details);
+      const atPort=g.location===step.port&&!unavailable;
+      const required=step.good?step.quantity:0,aboard=step.good?(g.cargo?.[step.good]||0):0;
+      if(!inHomeGalaxy)makeButton('Return to your home galaxy to continue',()=>{},true,true);
+      else if(!atPort)makeButton('Plot course to '+step.port,()=>plotExpeditionWaypoint(step.port),Boolean(g.ship.destination||g.ship.radio_mission));
+      else if(required&&aboard<required){
+        const note=document.createElement('span');note.className='expedition-note';note.textContent=`Cargo aboard: ${aboard}/${required} ${step.good}`;actions.append(note);
+        makeButton('Shop for '+step.good,()=>{setView('command');el('goods').value=step.good;updateTradeQuote();el('marketPanel').scrollIntoView({behavior:motionBehavior(),block:'start'})},false,true);
+      }else if(step.kind==='deliver_choice'){
+        for(const choice of step.choices){
+          const button=makeButton(choice.label,()=>command('advance_expedition',{expedition_id:mission.id,choice:choice.id}));
+          const effect=document.createElement('small');effect.textContent=choice.description;button.append(effect);
+        }
+      }else makeButton(step.kind==='finish'?'File report · collect reward':'Secure cargo · next waypoint',
+        ()=>command('advance_expedition',{expedition_id:mission.id}));
+      makeButton(pendingAbandonExpedition===mission.id?'Confirm abandon · keep cargo':'Abandon expedition',
+        ()=>{if(pendingAbandonExpedition===mission.id){pendingAbandonExpedition='';command('abandon_expedition',{expedition_id:mission.id})}
+            else{pendingAbandonExpedition=mission.id;renderExpeditions()}},false,true);
+    }
+    card.append(meta,title,description,stages,reward,actions);grid.append(card);
   }
 }
 function renderCampaign(){
@@ -683,7 +761,9 @@ el('exchangeForm').addEventListener('submit',e=>{e.preventDefault();let action=e
 let exchangePanel=el('exchangeForm').closest('section');
 exchangePanel.id='exchangePanel';
 el('commsPanel').append(exchangePanel);
+let bandPassport=document.createElement('section');bandPassport.id='bandPassport';bandPassport.className='band-passport';bandPassport.setAttribute('aria-label','Band passport');el('exchangePanel').before(bandPassport);
 let dispatchPanel=document.createElement('section');dispatchPanel.id='dispatchSignals';dispatchPanel.className='stat';dispatchPanel.setAttribute('aria-label','Sector dispatch signals');dispatchPanel.style.marginBottom='16px';el('exchangePanel').before(dispatchPanel);
+let expeditionsPanel=document.createElement('section');expeditionsPanel.id='expeditionsPanel';expeditionsPanel.className='stat expedition-board';expeditionsPanel.setAttribute('aria-label','Frontier expeditions');el('contracts').before(expeditionsPanel);
 let campaignPanel=document.createElement('div');campaignPanel.id='campaignPanel';campaignPanel.className='stat';campaignPanel.style.marginBottom='16px';el('contracts').before(campaignPanel);
 let filters=document.createElement('div');filters.id='contractFilters';filters.className='contract-filters';filters.setAttribute('role','group');filters.setAttribute('aria-label','Filter contracts');for(let kind of ['all','freight','vip','radio']){let button=document.createElement('button');button.type='button';button.className='secondary';button.dataset.filter=kind;button.textContent=kind;button.setAttribute('aria-pressed',String(kind==='all'));button.addEventListener('click',()=>{currentContractsFilter=kind;renderContracts()});filters.append(button)}el('contracts').before(filters);
 let equipmentPanel=document.createElement('div');equipmentPanel.id='equipmentPanel';equipmentPanel.className='stat';equipmentPanel.style.marginTop='14px';el('fleetForm').after(equipmentPanel);

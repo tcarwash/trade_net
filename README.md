@@ -4,7 +4,7 @@
 
 Build a fleet, explore your own galaxy, buy low and sell high, and fulfill freight contracts. When you connect with another operator, their station can become a node in your trade network. Link quality, frame loss, and relay routes become part of the game instead of just transport details.
 
-**Status:** playable solo browser prototype. Radio exchanges, cross-galaxy settlement, and the Data2G interface are still experimental; the browser simulator does **not** transmit RF.
+**Status:** playable solo browser prototype. Radio exchanges and the Data2G interface remain experimental. Local simulated dispatches never transmit, but the separate operator-controlled radio buttons **do send through Data2G** when configured and approved.
 
 ## Play locally
 
@@ -15,6 +15,14 @@ python -m tradenet.web --callsign AG7SU --seed 42
 ```
 
 Open **http://127.0.0.1:8765**.
+
+Optionally read your radio's frequency from Hamlib rigctld (usually TCP 4532):
+
+```sh
+python -m tradenet.web --callsign AG7SU --rigctld-host 127.0.0.1 --rigctld-port 4532
+```
+
+Trade Net only sends rigctld's read-frequency command; it cannot retune or key your rig. The header displays the current frequency and band. Your **band passport** rewards a first observation of each band with 60 credits, once per save, without transmitting. Some real-radio contracts ask for a specific band; these are checked against rigctld again before manual send and retry. Band classification is for gameplay, not an authorization to transmit.
 
 On a phone, the command deck becomes a full-width layout with a thumb-friendly bottom navigation bar, swipeable sector chart, and individual commodity price cards. The highlighted objective at the top points to your next useful action; when you've met the requirements, it can complete a chapter or turn in cargo/passengers directly. The contract board filters freight, VIP, and radio deliveries. Actual local flight progress is visible both on the chart and on a progress bar; orders are automatically saved by the local game server. Mobile home-screen icons and an app manifest are included for browsers that support adding local web apps to the home screen. Access from another device requires making the server reachable from that device; installation support depends on a trusted origin (typically HTTPS or localhost). Offline play is **not** supported: the interface requires its game server.
 
@@ -27,6 +35,8 @@ The **optional guided run** teaches the first real freight loop—review a contr
 
 **Your export base is Haven.** To fulfill a real partner's radio contract, buy the requested goods at another starport, carry them back to Haven aboard a ship, and use **Comms → Unload all imported cargo** to put them in the export warehouse. Then prepare the partner contract and transmit from Haven. Buying goods at Haven itself does not create eligible export cargo; its ordinary market stock is separate from your warehouse. Failed/rejected deliveries return reserved goods to that warehouse for a retry.
 
+Some radio contracts are **long-haul manifests** requesting two resource types and larger quantities. Stockpile those goods at Haven over multiple game sessions, then reserve the entire manifest and make a single radio delivery when the next contact is available. Supplies remain safely in the export warehouse between sessions; a partial manifest cannot be transmitted as a completed delivery. Radio contract offers do not currently expire while you gather goods.
+
 The economy advances in shared five-minute UTC ticks, including when you're away. Each ship has independent cargo, fuel, condition, location, and upgrades. Optional **hard mode** offers better selling prices but permanently destroys ships reduced to zero condition.
 
 The local galaxy now contains **ten starports** with distinct production specializations and roles. First visits reveal their character and award 90 exploration credits per new destination. Older five-port saves gain the new locations while preserving existing market stock. The market remembers the lowest buy and highest sell quote you have actually observed for each commodity while docked. The market-intel column shows the remembered port and its price difference from your current quote; those quotes are historical, not guaranteed live offers.
@@ -36,6 +46,8 @@ Space isn't empty: the asteroid field circles the central sector, blocking direc
 The **Contracts** board also offers VIP passenger missions: navigate to the pickup port, board a diplomat, medic, survey captain, or trade delegate on a specific ship, and reach the requested destination for a bonus. Each ship carries at most one VIP; you can cancel a passenger mission without destroying your ship. Freight, VIP transport, exploration, and radio logistics all share the same fleet and credits.
 
 **Frontier Dispatch** now adds a deterministic sector incident every eight economy ticks. Each incident affects the actual buy/sell prices of one commodity at a starport and issues a time-limited local relief or supply contract. Follow the news bulletin or the ◇ dispatch signal in Comms to find the job. These fictional dispatch signals are local game activity only; **◉** marks real radio contacts and their operator-controlled Data2G actions. The two ledgers are separate, so browsing or fulfilling a dispatch job never transmits RF.
+
+**Frontier expeditions** are longer single-player missions on the Contracts screen. Start at Haven, source the requested goods through ordinary markets, fly to the mission waypoint, make a choice that changes faction reputation and payout, then return to headquarters. The first two expeditions are *The Long Night* and *Echoes of Eidolon*. Mission progress persists in saves; you may abandon and retry without losing cargo, and returning late only forfeits the punctuality bonus. No radio or online contact is required.
 
 ### Frontier campaign, fog of war, and outfitting
 
@@ -66,13 +78,14 @@ python -m unittest discover -s tests -v
 
 - **Personal galaxies:** each player has an independently seeded economy and an abundant rare resource.
 - **Discovered network:** direct contacts appear as measured links; second-hop advertisements are marked as reported, not verified.
-- **Real freight:** trade messages can move through store-and-forward routes with custody tracking, retries, and acknowledgments. The simulated ship's movement along a link reflects frame progress.
+- **Real freight:** after direct first contact, a station can fulfill the partner's single- or multi-resource request, with persisted staging, limited retries and application receipts. The ship-on-link animation reflects frame progress.
+- **Multi-hop discovery is not multi-hop delivery:** stations relay information about other stations, but cargo custody and forwarding through an intermediary are not implemented. Only direct, acknowledged deliveries settle a contract; see the [single-player roadmap](docs/SINGLE-PLAYER-ROADMAP.md) for the relay-custody design.
 - **Three useful payload classes:** **Light** carries transaction data; **Medium** adds second-hop ore information; **Heavy** adds second-hop market prices. No synthetic padding is added.
 - **Ship tiers:** Scout (500 Hz), Courier (1,200 Hz), and Express (2,400 Hz) have different simulated transmission capabilities. The chosen mission ship determines its tier.
 - **Mission risk:** an outbound message that expires before delivery damages its assigned ship, which returns to its origin. Hard mode can make that loss permanent. Ambiguous transactions remain pending reconciliation.
-- **Premium RF freight:** a verified partner delivery pays `min(1500, 100 + 2 × base value of requested cargo)` credits to the sending station, in addition to exploration/contact rewards. The payout is calculated from the locally staged contract after a matching application receipt—not from a peer's untrusted credit claim. Local freight provides a lower-stakes path to earning capital and outfitting radio-capable ships.
+- **Premium RF freight:** a verified partner delivery pays `100 + 2 × base value of requested cargo` credits, capped at 1,500 for single-resource freight and 3,000 for long-haul manifests. The payout is calculated from locally staged goods after a matching application receipt—not from a peer's untrusted credit claim. Local freight remains a lower-stakes path to earning capital and outfitting ships.
 
-The long-term goal is for actual on-air transfer success, throughput, and network topology to shape the gameplay. For now, the browser's mail system and cross-galaxy exchange are local simulations—not independent RF-connected ledgers or cryptographically authenticated receipts.
+The long-term goal is for actual on-air transfer success, throughput, and network topology to shape the gameplay. Today's partner exchange uses real Data2G messages and per-station ledgers, while the separate ◇ sector dispatch is simulated. Cryptographic RF identity and multi-hop custody are not yet implemented.
 
 ## Documentation
 

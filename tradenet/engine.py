@@ -37,6 +37,42 @@ SECTOR_INCIDENTS = (
     ("Trade festival", "Meridian", "Haven", "food",
      "The exchange is hosting a major festival and buying provisions at a premium."),
 )
+EXPEDITION_TEMPLATES = (
+    {"id": "expedition-relief", "title": "The Long Night",
+     "description": "A storm has stranded Bastion's medical crews. Gather supplies, choose who receives them, and report back to Haven.",
+     "reward": 470, "stages": [
+         {"port": "Aurora", "kind": "load", "title": "Secure emergency medicine",
+          "description": "Purchase 3 medicine at Aurora and keep it aboard your ship.",
+          "good": "medicine", "quantity": 3},
+         {"port": "Bastion", "kind": "deliver_choice", "title": "Triage at Bastion",
+          "description": "Deliver all 3 medicine and decide who gets priority.",
+          "good": "medicine", "quantity": 3, "choices": [
+              {"id": "clinic", "label": "Help the field clinic",
+               "description": "+90 cr, +3 scientists standing", "bonus": 90,
+               "faction": "scientists", "reputation": 3},
+              {"id": "evacuation", "label": "Aid the evacuation",
+               "description": "+60 cr, +3 diplomats standing", "bonus": 60,
+               "faction": "diplomats", "reputation": 3}]},
+         {"port": "Haven", "kind": "finish", "title": "Debrief at Haven",
+          "description": "Return to your headquarters to collect the mission reward."}]},
+    {"id": "expedition-beacon", "title": "Echoes of Eidolon",
+     "description": "An ancient relay near Eidolon has fallen silent. Source repair materials, investigate, and decide what to recover.",
+     "reward": 560, "stages": [
+         {"port": "Prospect", "kind": "load", "title": "Source relay materials",
+          "description": "Purchase 2 ore at Prospect for the damaged relay.",
+          "good": "ore", "quantity": 2},
+         {"port": "Eidolon", "kind": "deliver_choice", "title": "The silent relay",
+          "description": "Use the 2 ore to stabilize the site, then make a discovery choice.",
+          "good": "ore", "quantity": 2, "choices": [
+              {"id": "restore", "label": "Restore the relay",
+               "description": "+40 cr, +3 explorers standing", "bonus": 40,
+               "faction": "explorers", "reputation": 3},
+              {"id": "salvage", "label": "Claim the salvage",
+               "description": "+120 cr, +3 miners standing", "bonus": 120,
+               "faction": "miners", "reputation": 3}]},
+         {"port": "Haven", "kind": "finish", "title": "File the expedition report",
+          "description": "Return to Haven with the relay's findings."}]},
+)
 
 
 class GameError(ValueError):
@@ -78,6 +114,8 @@ class Game:
     story_stage: int = 0
     discoveries: dict = field(default_factory=dict)
     sector_events: list[dict] = field(default_factory=list)
+    expeditions: dict = field(default_factory=dict)
+    radio_bands_seen: list[str] = field(default_factory=list)
 
     def __post_init__(self):
         if not self.galaxies:
@@ -113,6 +151,10 @@ class Game:
             self._replenish_local_jobs()
         self._replenish_vip_jobs()
         self._refresh_sector_events()
+        if not self.expeditions:
+            self.expeditions = {template["id"]: {**deepcopy(template), "status": "offered",
+                "stage": 0, "bonus": 0, "choice": None, "accepted_tick": None}
+                for template in EXPEDITION_TEMPLATES}
         self.observe_markets()
 
     def _refresh_sector_events(self):
@@ -157,6 +199,91 @@ class Game:
     def active_sector_events(self) -> list[dict]:
         return [event for event in self.sector_events
                 if event["start_tick"] <= self.tick < event["end_tick"]]
+
+    def _accept_expedition(self, expedition_id: str) -> dict:
+        self._available()
+        mission = self.expeditions.get(expedition_id)
+        if not mission or mission["status"] != "offered":
+            raise GameError("expedition is not available")
+        if self.ship.get("galaxy", "home") != "home" or self.location != "Haven":
+            raise GameError("accept expeditions at Haven headquarters")
+        if any(other["status"] == "accepted" for other in self.expeditions.values()):
+            raise GameError("finish or abandon your current expedition first")
+        mission["status"] = "accepted"
+        mission["accepted_tick"] = self.tick
+        mission["stage"] = 0
+        mission["bonus"] = 0
+        mission["choice"] = None
+        return {"expedition_id": expedition_id, "title": mission["title"],
+                "next": deepcopy(mission["stages"][0])}
+
+    def _advance_expedition(self, expedition_id: str, choice: str | None = None) -> dict:
+        self._available()
+        mission = self.expeditions.get(expedition_id)
+        if not mission or mission["status"] != "accepted":
+            raise GameError("expedition is not active")
+        if self.ship.get("galaxy", "home") != "home":
+            raise GameError("return to your home galaxy for this expedition")
+        stage = mission["stages"][mission["stage"]]
+        if self.location != stage["port"]:
+            raise GameError(f"travel to {stage['port']} for this expedition step")
+        kind = stage["kind"]
+        if kind == "load":
+            if choice is not None:
+                raise GameError("this step does not require a choice")
+            if self.cargo[stage["good"]] < stage["quantity"]:
+                raise GameError(f"load {stage['quantity']} {stage['good']} before proceeding")
+        elif kind == "deliver_choice":
+            option = next((entry for entry in stage["choices"] if entry["id"] == choice), None)
+            if option is None:
+                raise GameError("choose one of the available expedition outcomes")
+            if self.cargo[stage["good"]] < stage["quantity"]:
+                raise GameError(f"deliver {stage['quantity']} {stage['good']} to proceed")
+            self.cargo[stage["good"]] -= stage["quantity"]
+            self.ship.setdefault("export_cargo", {})[stage["good"]] = max(
+                0, self.ship["export_cargo"].get(stage["good"], 0) - stage["quantity"])
+            self.ports[self.location]["stock"][stage["good"]] += stage["quantity"]
+            mission["bonus"] += option["bonus"]
+            mission["choice"] = choice
+        elif kind == "finish":
+            if choice is not None:
+                raise GameError("this step does not require a choice")
+            # An overdue expedition can still be completed; only the prompt
+            # return bonus is forfeited. Offline play must not strand cargo.
+            punctual = self.tick - mission["accepted_tick"] <= 48
+            reward = mission["reward"] + mission["bonus"] + (100 if punctual else 0)
+            choice_stage = next((step for step in mission["stages"]
+                                 if step["kind"] == "deliver_choice"), None)
+            if choice_stage:
+                chosen = next((item for item in choice_stage["choices"]
+                               if item["id"] == mission["choice"]), None)
+                if chosen:
+                    self.factions[chosen["faction"]] += chosen["reputation"]
+            self.credits += reward
+            self.factions["traders"] += 2
+            mission["status"] = "completed"
+            mission["completed_tick"] = self.tick
+            mission["payout"] = reward
+            return {"expedition_id": expedition_id, "title": mission["title"],
+                    "stage_title": stage["title"], "completed": True,
+                    "reward": reward, "choice": mission["choice"]}
+        else:
+            raise GameError("unsupported expedition step")
+        mission["stage"] += 1
+        return {"expedition_id": expedition_id, "title": mission["title"],
+                "stage_title": stage["title"], "completed": False,
+                "choice": choice, "next": deepcopy(mission["stages"][mission["stage"]])}
+
+    def _abandon_expedition(self, expedition_id: str) -> dict:
+        mission = self.expeditions.get(expedition_id)
+        if not mission or mission["status"] != "accepted":
+            raise GameError("expedition is not active")
+        # Any cargo already purchased stays with the player. Reputation and
+        # payout settle at the debrief, so restarting cannot farm them.
+        mission.update(status="offered", stage=0, bonus=0, choice=None,
+                       accepted_tick=None)
+        return {"expedition_id": expedition_id, "status": "offered",
+                "title": mission["title"]}
 
     def _replenish_vip_jobs(self):
         for job in self.vip_jobs.values():
@@ -587,6 +714,12 @@ class Game:
                 result = self._buy_equipment(**kwargs)
             elif action == "complete_story":
                 result = self._complete_story()
+            elif action == "accept_expedition":
+                result = self._accept_expedition(**kwargs)
+            elif action == "advance_expedition":
+                result = self._advance_expedition(**kwargs)
+            elif action == "abandon_expedition":
+                result = self._abandon_expedition(**kwargs)
             else:
                 raise GameError(f"unknown action: {action}")
         except (GameError, TypeError, KeyError) as exc:

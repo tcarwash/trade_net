@@ -131,6 +131,20 @@ NPC_CAPTAINS = (
      "good": "fuel", "route": ["Kepler", "Drift"], "quantity": 3, "phase": 1,
      "description": "A contraband runner whose deals shift fuel prices along the salvage corridor."},
 )
+FACTION_STORYLINES = {
+    "mara-venn": {"ally": "The Meridian Trade Compact", "rival": "Meridian's Closed Doors",
+                  "perk": "trade_charter", "perk_name": "Independent trade charter",
+                  "description": "Mara offers access to her independent cargo network."},
+    "rin-kestrel": {"ally": "The Prospect Foundry Pact", "rival": "The Foundry Debt",
+                    "perk": "reinforced_plating", "perk_name": "Foundry-reinforced plating",
+                    "description": "Rin's foundry can harden your fleet for dangerous routes."},
+    "lysa-quell": {"ally": "The Aurora Survey Initiative", "rival": "Quell's Ethics Hearing",
+                   "perk": "survey_uplink", "perk_name": "Survey uplink",
+                   "description": "Quell can share her research team's frontier discoveries."},
+    "sable-rook": {"ally": "Blackwake Safe Passage", "rival": "The Blackwake Vendetta",
+                    "perk": "pirate_codes", "perk_name": "Blackwake passage codes",
+                    "description": "Rook knows which pirate patrols to avoid and which to pay."},
+}
 HAVEN_FACILITIES = {
     "repair_bay": {"name": "Repair bay", "max_level": 3, "credits": 240,
                    "good": "ore", "quantity": 3,
@@ -276,6 +290,9 @@ class Game:
     local_encounters: dict = field(default_factory=dict)
     faction_followups: dict = field(default_factory=dict)
     captain_deals: dict = field(default_factory=dict)
+    faction_storylines: dict = field(default_factory=dict)
+    faction_perks: list[str] = field(default_factory=list)
+    captain_nemeses: list[str] = field(default_factory=list)
 
     def __post_init__(self):
         if not self.galaxies:
@@ -326,6 +343,7 @@ class Game:
             self.expeditions.setdefault(template["id"], {
                 **deepcopy(template), "status": "offered", "stage": 0,
                 "bonus": 0, "choice": None, "accepted_tick": None})
+        self._refresh_faction_storylines()
         for port in self.visited_ports:
             self._reveal_encounter(port)
         self.observe_markets()
@@ -460,22 +478,105 @@ class Game:
                 departure_tick = cycle * NPC_INTERVAL - captain["phase"]
                 open_rivals = sum(j["status"] == "open" and j.get("kind") == "rival"
                                   for j in self.local_jobs.values())
-                if (quantity >= 2 and cycle % 4 == captain["phase"] % 4
+                nemesis = captain["id"] in self.captain_nemeses
+                interval = 2 if nemesis else 4
+                if (quantity >= 2 and cycle % interval == captain["phase"] % interval
                         and departure_tick >= self.tick - NPC_INTERVAL
                         and open_rivals < 2 and origin_stock[good] >= 2):
                     count = min(3, origin_stock[good])
                     job_id = f"rival-{captain['id']}-{cycle}"
                     self.local_jobs.setdefault(job_id, {
                         "id": job_id, "kind": "rival", "npc_id": captain["id"],
-                        "title": f"Race {captain['name']} to {destination}",
-                        "description": f"Move {good} before {captain['vessel']} claims the contract.",
+                        "title": ("Vendetta run: " if nemesis else "Race ") + f"{captain['name']} to {destination}",
+                        "description": f"Move {good} before {captain['vessel']} claims the contract."
+                                       + (" Your feud makes this a priority interception." if nemesis else ""),
                         "origin": origin, "destination": destination,
                         "good": good, "quantity": count,
-                        "reward": BASE_PRICE[good] * count * 3 + 80,
-                        "deadline": departure_tick + NPC_INTERVAL * 2,
+                        "reward": BASE_PRICE[good] * count * 3 + (180 if nemesis else 80),
+                        "deadline": departure_tick + NPC_INTERVAL * (1 if nemesis else 2),
                         "status": "open"})
             captain["last_cycle"] = target_cycle
         self.npc_shipments = self.npc_shipments[-24:]
+
+    def _refresh_faction_storylines(self) -> None:
+        """Latch the first trust or feud threshold into an authored choice."""
+        for captain in self.npc_captains.values():
+            if captain["id"] in self.faction_storylines or abs(captain["relationship"]) < 3:
+                continue
+            template = FACTION_STORYLINES.get(captain["id"])
+            if not template:
+                continue
+            allied = captain["relationship"] >= 3
+            good = captain["good"]
+            if allied:
+                choices = [
+                    {"id": "charter", "label": "Forge the alliance",
+                     "description": f"2 {good} and 160 cr → {template['perk_name']}, +2 {captain['faction']} standing",
+                     "cargo": {good: 2}, "credits_cost": 160, "relationship": 1,
+                     "standing": 2, "perk": template["perk"]},
+                    {"id": "cashout", "label": "Take the advance instead",
+                     "description": "No cargo → +180 cr, -1 relationship, +1 faction standing",
+                     "reward": 180, "relationship": -1, "standing": 1},
+                ]
+            else:
+                choices = [
+                    {"id": "truce", "label": "Settle the dispute",
+                     "description": f"2 {good} and 120 cr → +3 relationship, +2 {captain['faction']} standing",
+                     "cargo": {good: 2}, "credits_cost": 120, "relationship": 3,
+                     "standing": 2},
+                    {"id": "defy", "label": "Declare a vendetta",
+                     "description": "+180 cr now; this captain posts more frequent, tighter rival races",
+                     "reward": 180, "relationship": -1, "nemesis": True},
+                ]
+            scene = {"npc_id": captain["id"], "captain": captain["name"],
+                     "title": template["ally"] if allied else template["rival"],
+                     "description": template["description"] if allied else
+                                    f"{captain['name']} challenges you over the breakdown of your last deal.",
+                     "port": captain["route"][0], "alignment": "ally" if allied else "rival",
+                     "status": "offered", "opened_tick": self.tick, "choices": choices}
+            self.faction_storylines[captain["id"]] = scene
+            self.journal.append({"id": "faction-story-" + captain["id"], "tick": self.tick,
+                                 "action": "faction_storyline_offered",
+                                 "result": {"title": scene["title"], "captain": captain["name"],
+                                            "port": scene["port"], "alignment": scene["alignment"]}})
+
+    def _resolve_faction_storyline(self, npc_id: str, choice: str) -> dict:
+        self._available()
+        scene = self.faction_storylines.get(npc_id)
+        if not scene or scene["status"] != "offered":
+            raise GameError("this captain's storyline is no longer available")
+        if self.ship.get("galaxy", "home") != "home" or self.location != scene["port"]:
+            raise GameError(f"meet at {scene['port']} to resolve this storyline")
+        option = next((item for item in scene["choices"] if item["id"] == choice), None)
+        if not option:
+            raise GameError("choose a valid faction outcome")
+        cost = option.get("credits_cost", 0)
+        if self.credits < cost:
+            raise GameError("insufficient credits for this faction outcome")
+        for good, quantity in option.get("cargo", {}).items():
+            if self.cargo.get(good, 0) < quantity:
+                raise GameError(f"load {quantity} {good} before choosing this outcome")
+        for good, quantity in option.get("cargo", {}).items():
+            self.cargo[good] -= quantity
+            eligible = self.ship.setdefault("export_cargo", {})
+            eligible[good] = max(0, eligible.get(good, 0) - quantity)
+            self.ports[self.location]["stock"][good] += quantity
+        reward = option.get("reward", 0)
+        self.credits += reward - cost
+        captain = self.npc_captains[npc_id]
+        captain["relationship"] = max(-5, min(5, captain["relationship"] + option["relationship"]))
+        self.factions[captain["faction"]] += option.get("standing", 0)
+        perk = option.get("perk")
+        if perk and perk not in self.faction_perks:
+            self.faction_perks.append(perk)
+        if option.get("nemesis") and npc_id not in self.captain_nemeses:
+            self.captain_nemeses.append(npc_id)
+        scene.update(status="resolved", outcome=choice, resolved_tick=self.tick)
+        return {"npc_id": npc_id, "captain": captain["name"], "title": scene["title"],
+                "choice": choice, "outcome": option["label"], "credits_delta": reward - cost,
+                "cargo_spent": deepcopy(option.get("cargo", {})),
+                "relationship": captain["relationship"], "standing": option.get("standing", 0),
+                "faction": captain["faction"], "perk": perk, "nemesis": bool(option.get("nemesis"))}
 
     def captain_deal_quote(self, npc_id: str) -> dict:
         """A relationship-gated lot drawn from existing port stock."""
@@ -488,14 +589,15 @@ class Game:
         normal = self.price(port, good, "buy") if at_home else 0
         # A private lot must never be immediately profitable to sell back at
         # the same port. Price the future sale against the stock AFTER all
-        # three reserved units are removed, not the pre-purchase market.
-        floor = (self.price(port, good, "sell", stock_override=max(0, stock - 3)) + 1
+        # reserved units are removed, not the pre-purchase market.
+        lot_size = 5 if "trade_charter" in self.faction_perks and npc_id == "mara-venn" else 3
+        floor = (self.price(port, good, "sell", stock_override=max(0, stock - lot_size)) + 1
                  if at_home else 0)
         unit = max(floor, normal * 85 // 100)
         next_tick = self.captain_deals.get(npc_id, -24) + 24
         return {"npc_id": npc_id, "captain": captain["name"], "port": port,
                 "good": good, "unit_price": unit, "normal_price": normal,
-                "max_quantity": min(3, stock), "next_tick": next_tick,
+                "max_quantity": min(lot_size, stock), "next_tick": next_tick,
                 "available": at_home and captain["relationship"] >= 2
                 and self.tick >= next_tick and stock > 0}
 
@@ -507,7 +609,7 @@ class Game:
         if not quote["available"]:
             raise GameError("private lot unavailable; improve your relationship or wait for restock")
         if type(amount) is not int or not 1 <= amount <= quote["max_quantity"]:
-            raise GameError("choose one to three units from the available lot")
+            raise GameError("choose a positive amount within the available lot")
         total = quote["unit_price"] * amount
         if self.credits < total:
             raise GameError("insufficient credits")
@@ -732,6 +834,7 @@ class Game:
                     "title": ("A Favor from " if aligned else "A Challenge from ") + captain["name"],
                     "description": ("Your help earned a priority freight offer." if aligned else
                                     "Your rival demands that you prove yourself on a difficult delivery.")}
+            self._refresh_faction_storylines()
             return {"expedition_id": expedition_id, "title": mission["title"],
                     "stage_title": stage["title"], "completed": True,
                     "reward": reward, "choice": mission["choice"],
@@ -969,6 +1072,7 @@ class Game:
             for followup in self.faction_followups.values():
                 if followup.get("job_id") == job_id:
                     followup.update(status="completed", resolution=resolution)
+        self._refresh_faction_storylines()
         self._replenish_local_jobs()
         return {"job_id": job_id, "reward": payout, "credits": self.credits,
                 "captain": captain["name"] if captain else None,
@@ -1005,6 +1109,8 @@ class Game:
                     if ship.get("galaxy", "home") == "home" and ship["location"] not in self.visited_ports:
                         self.visited_ports.append(ship["location"])
                         explore_bonus = 90 + min(100, self.factions["explorers"] * 10)
+                        if "survey_uplink" in self.faction_perks:
+                            explore_bonus += 45
                         self.credits += explore_bonus
                         self.factions["explorers"] += 1
                         index = list(self.ports).index(ship["location"])
@@ -1140,6 +1246,8 @@ class Game:
         if action == "buy" and good in ("ore", "medicine"):
             faction = "miners" if good == "ore" else "scientists"
             multiplier -= min(8, self.factions.get(faction, 0) // 2)
+        if action == "buy" and good == "food" and "trade_charter" in self.faction_perks:
+            multiplier -= 5
         # A recurring captain offers a modest local deal (or surcharge) on
         # their own commodity, depending on your completed expedition choice.
         if action == "buy":
@@ -1217,6 +1325,8 @@ class Game:
                 result = self._buy_captain_deal(**kwargs)
             elif action == "request_sector_aid":
                 result = self._request_sector_aid(**kwargs)
+            elif action == "resolve_faction_storyline":
+                result = self._resolve_faction_storyline(**kwargs)
             elif action == "unload_export":
                 result = self._unload_export(**kwargs)
             elif action == "accept_vip":
@@ -1328,6 +1438,8 @@ class Game:
         mitigation = max(0, int(self.ship.get("modem_tier", 0)) * 2)
         if risk["kind"] == "gas" and "shield" in equipment:
             mitigation += 6
+        if risk["kind"] != "clear" and "reinforced_plating" in self.faction_perks:
+            mitigation += 3
         if risk["kind"] == "pirates":
             if pirate_stance == "evade":
                 mitigation += 2
@@ -1343,6 +1455,8 @@ class Game:
             # A capped pirate toll makes a dangerous route matter without
             # deleting a reserved cargo manifest or creating a dead-end.
             toll = min(self.credits, max(0, 10 + distance * 3 - self.factions.get("pirates", 0) * 2))
+            if "pirate_codes" in self.faction_perks:
+                toll //= 2
             self.credits -= toll
             risk = {**risk, "toll": toll}
             self.factions["pirates"] += 1

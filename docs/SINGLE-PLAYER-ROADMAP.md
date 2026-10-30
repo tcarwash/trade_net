@@ -160,8 +160,18 @@ not just a discovery payout.
       commodity-matched dispatches with hazard premiums and tight deadlines.
 - [x] Follow-up freight resolves commercially for the entire payout or as a
       reconciliation for half payment, +3 relationship and +2 faction standing.
-- [ ] More reactive captain dialogue, persistent choices in later encounters,
-      faction-controlled special equipment and trade embargoes.
+- [x] At +3/-3 relationship, each captain unlocks a one-time authored alliance
+      or feud story at a permanent rendezvous port. Choices spend physical
+      cargo/credits, grant different permanent outcomes and survive reloads.
+- [x] Four fleet-wide faction perks: Mara's trade charter expands private food
+      lots and lowers food prices; Rin's foundry plating mitigates route damage;
+      Lysa's survey uplink increases first-visit exploration rewards; Sable's
+      passage codes halve pirate tolls.
+- [x] A defied rival becomes a persistent nemesis: more frequent competing
+      freight, shortened deadlines and higher bounty pay. A truce repairs the
+      relationship without generating a nemesis.
+- [ ] Multi-chapter faction dialogue, new equipment models and staffed bases,
+      faction-specific embargoes and multiple authored finales.
 - [ ] More rescuees and branching quest chains with special equipment and
       authored endings.
 
@@ -246,6 +256,8 @@ intentional, legible operator action.
 The current solo vertical slice includes incidents, multi-stage expeditions,
 one-time and repeating dockside encounters, three upgradable Haven facilities,
 recurring local NPC haulers, rival contracts and delayed faction follow-ups.
-Their shipments and relationship-dependent market offers remain entirely inside
-the saved game. Broader faction dialogue, multi-hop freight custody and
-simulator radio contacts remain future milestones, not implied by a reported link.
+One-time alliance/feud arcs, four permanent fleet perks and named recurring
+nemeses now provide lasting consequences. Their shipments, missions and market
+offers remain entirely inside the saved game. Multi-chapter faction dialogue,
+multi-hop freight custody and simulator radio contacts remain future milestones,
+not implied by a reported link.

@@ -153,6 +153,16 @@ class BrowserUIContractTests(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertIn(marker, html)
 
+    def test_persistent_faction_stories_have_choices_and_nemesis_feedback(self):
+        html = self.browser_html()
+        for marker in ("renderFactionStorylines()", "function renderFactionStorylines(){",
+                       "factionStorylinesPanel", "g.faction_storylines", "g.faction_perks",
+                       "g.captain_nemeses", "◇ ALLIANCE OFFER", "◇ RIVAL ULTIMATUM",
+                       "command('resolve_faction_storyline'", "entry.action==='faction_storyline_offered'",
+                       "entry.action==='resolve_faction_storyline'", "plotExpeditionWaypoint(scene.port)"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, html)
+
 
 if __name__ == "__main__":
     unittest.main()

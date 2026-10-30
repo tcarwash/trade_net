@@ -17,7 +17,7 @@ from copy import deepcopy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .engine import Game, GameError, GOODS, BASE_PRICE, HAVEN_FACILITIES
+from .engine import Game, GameError, GOODS, BASE_PRICE, HAVEN_FACILITIES, CREW_ROLES
 from .network import Network
 from . import modems
 from .data2g import Data2GClient, Data2GError
@@ -738,6 +738,9 @@ class App:
                 reservation = self.radio_reservations.pop(job.get("contract_id"), None)
                 if reservation:
                     job["settlement"] = "fulfilled"
+                # Only a verified partner ACK develops the signal officer;
+                # simulated sector traffic never grants real-radio experience.
+                self.game.award_crew_experience(job.get("ship_id"), "signal", 2)
             job["status"] = "delivered"
             job["completed_at"] = time.time()
         else:
@@ -872,6 +875,8 @@ class App:
                 "haven_upgrades": {key: self.game.haven_upgrade_quote(key)
                                    for key in HAVEN_FACILITIES},
                 "haven_warehouse_capacity": self.game.haven_warehouse_capacity(),
+                "crew_candidates": self.game.crew_candidates(),
+                "crew_roles": deepcopy(CREW_ROLES),
                 "captain_deal_quotes": {key: self.game.captain_deal_quote(key)
                                         for key in self.game.npc_captains},
                 # Fictional sector signals are a local gameplay projection;

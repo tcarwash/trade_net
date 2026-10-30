@@ -169,10 +169,21 @@ class BrowserUIContractTests(unittest.TestCase):
                        "g.haven_orders", "g.next_haven_order_tick",
                        "command('fulfill_haven_order'", "command('unload_export'",
                        "state.haven_warehouse_capacity", "function shipyardPrice(base)",
-                       "shipyardPrice(ship.cost)", "displayReward=job.destination==='Haven'",
+                       "shipyardPrice(ship.cost)", "havenReward=job.destination==='Haven'",
                        "entry.action==='fulfill_haven_order'", "Interactive Haven headquarters layout",
                        "campus-site", "campus-levels", "haven-facility-", "SELECT TO BUILD",
                        "Source ${good}", "g.price_memory?.[good]?.lowest_buy"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, html)
+
+    def test_fleet_crew_management_is_visible_and_state_driven(self):
+        html = self.browser_html()
+        for marker in ("function renderFleetOperations(){", "renderFleetOperations();map()",
+                       "state.crew_candidates", "state.crew_roles", "crewForShip(",
+                       "fleet-roster-grid", "recruit-list", "crew-list",
+                       "command('hire_crew'", "command('assign_crew'",
+                       "command('unassign_crew'", "command('rename_ship'",
+                       "command('transfer_cargo'", "entry.action==='hire_crew'"):
             with self.subTest(marker=marker):
                 self.assertIn(marker, html)
 

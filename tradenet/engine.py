@@ -22,6 +22,15 @@ PORT_ROLES = ("Home hub", "Refinery", "Research enclave", "Mining colony",
               "Trade exchange", "Industrial furnace", "Medical sanctuary",
               "Salvage outpost", "Fortress station", "Frontier observatory")
 EQUIPMENT = {"scanner": 220, "shield": 350, "navigator": 420, "defense": 380}
+CREW_ROLES = {
+    "pilot": {"name": "Pilot", "effect": "Save 1 fuel per skill level on local flights; veterans fly faster"},
+    "engineer": {"name": "Engineer", "effect": "Reduce local flight damage and repair costs"},
+    "broker": {"name": "Broker", "effect": "Earn 5% more on local freight per skill level"},
+    "signal": {"name": "Signal officer", "effect": "Protect hull during failed real RF transfers; train on confirmed deliveries"},
+}
+CREW_NAMES = ("Ari Vale", "Nia Soren", "Jax Moreno", "Elara Quinn",
+              "Ren Osei", "Mira Sol", "Tavi Reyes", "Sera Moss",
+              "Kai Mercer", "Lyra Chen", "Dax Imani", "Noor Venn")
 INCIDENT_INTERVAL = 8  # Shared economy ticks; no wall-clock-only randomness.
 NPC_INTERVAL = 6  # A captain's route advances every 30 in-game minutes.
 ENCOUNTER_INTERVAL = 12  # A new local opportunity every in-game hour.
@@ -305,6 +314,9 @@ class Game:
     haven_orders: dict = field(default_factory=dict)
     next_haven_order_number: int = 1
     next_haven_order_tick: int = 0
+    crew_roster: dict = field(default_factory=dict)
+    recruited_candidates: list[str] = field(default_factory=list)
+    next_crew_number: int = 1
 
     def __post_init__(self):
         if not self.galaxies:
@@ -329,6 +341,15 @@ class Game:
             ship.setdefault("galaxy", "home")
             ship.setdefault("export_cargo", {})
             ship.setdefault("equipment", [])
+        # Crew are recorded once on the roster, not duplicated inside each
+        # ship. Recover marooned assignments from older or damaged saves.
+        for crew in self.crew_roster.values():
+            if crew.get("ship_id") in self.fleet:
+                crew["galaxy"] = self.fleet[crew["ship_id"]].get("galaxy", "home")
+            else:
+                crew["ship_id"] = None
+                crew.setdefault("location", "Haven")
+                crew.setdefault("galaxy", "home")
         for faction in ("traders", "explorers", "diplomats", "security",
                         "miners", "scientists", "pirates"):
             self.factions.setdefault(faction, 0)
@@ -1133,6 +1154,9 @@ class Game:
         pay = job["reward"]
         if job["destination"] == "Haven":
             pay = pay * (100 + 10 * self.haven_facilities.get("logistics", 0)) // 100
+        broker = self.crew_member(self.active_ship_id, "broker")
+        if broker:
+            pay = pay * (100 + 5 * broker["level"]) // 100
         payout = pay if resolution == "commercial" else pay // 2
         self.credits += payout
         self.factions["traders"] += 1
@@ -1151,6 +1175,7 @@ class Game:
                     followup.update(status="completed", resolution=resolution)
         self._refresh_faction_storylines()
         self._replenish_local_jobs()
+        self.award_crew_experience(self.active_ship_id, "broker", 2)
         return {"job_id": job_id, "reward": payout, "credits": self.credits,
                 "captain": captain["name"] if captain else None,
                 "kind": job.get("kind"), "resolution": resolution}
@@ -1215,6 +1240,143 @@ class Game:
         self.observe_markets()
         return {"active_ship_id": ship_id, "location": self.location}
 
+    @staticmethod
+    def crew_capacity(ship: dict) -> int:
+        return 2 + min(2, max(0, int(ship.get("modem_tier", 0))))
+
+    def crew_member(self, ship_id: str, role: str) -> dict | None:
+        return next((person for person in self.crew_roster.values()
+                     if person.get("ship_id") == ship_id and person["role"] == role), None)
+
+    def crew_candidates(self, port: str | None = None) -> list[dict]:
+        """Repeatable, deterministic dockside hiring board; no RF presence."""
+        if port is None and self.ship.get("galaxy", "home") != "home":
+            return []
+        port = self.location if port is None else port
+        if port not in PORT_NAMES:
+            return []
+        index, cycle = PORT_NAMES.index(port), self.tick // 144
+        roles = tuple(CREW_ROLES)
+        offers = []
+        for slot in range(3):
+            role = roles[(self.seed + index * 3 + cycle + slot) % len(roles)]
+            level = 1 + (self.seed + index + cycle + slot) % 2
+            name = CREW_NAMES[(self.seed * 3 + index * 5 + cycle * 2 + slot) % len(CREW_NAMES)]
+            candidate_id = f"candidate-{index}-{cycle}-{slot}"
+            if candidate_id not in self.recruited_candidates:
+                offers.append({"id": candidate_id, "name": name, "role": role,
+                               "level": level, "cost": 120 + level * 85,
+                               "port": port, "source": "local_simulation"})
+        return offers
+
+    def _docked_ship(self, ship_id: str) -> dict:
+        ship = self.fleet.get(ship_id)
+        if not ship or ship.get("destination") or ship.get("radio_mission") or ship.get("voyage"):
+            raise GameError("choose a docked ship that is not on a mission")
+        return ship
+
+    def _hire_crew(self, candidate_id: str) -> dict:
+        self._available()
+        person = next((candidate for candidate in self.crew_candidates()
+                       if candidate["id"] == candidate_id), None)
+        if not person:
+            raise GameError("recruit is not available at your current port")
+        if len(self.crew_roster) >= 30:
+            raise GameError("crew roster is full")
+        if self.credits < person["cost"]:
+            raise GameError("not enough credits to hire this specialist")
+        self.credits -= person["cost"]
+        crew_id = f"crew-{self.next_crew_number}"
+        self.next_crew_number += 1
+        assigned = (len([c for c in self.crew_roster.values()
+                         if c.get("ship_id") == self.active_ship_id]) < self.crew_capacity(self.ship)
+                    and self.crew_member(self.active_ship_id, person["role"]) is None)
+        self.crew_roster[crew_id] = {"id": crew_id, "name": person["name"],
+                                     "role": person["role"], "level": person["level"],
+                                     "xp": 0, "ship_id": self.active_ship_id if assigned else None,
+                                     "location": self.location, "galaxy": self.ship.get("galaxy", "home"),
+                                     "origin": self.location}
+        self.recruited_candidates.append(candidate_id)
+        return {"crew_id": crew_id, "name": person["name"], "role": person["role"],
+                "level": person["level"], "cost": person["cost"],
+                "ship_id": self.active_ship_id if assigned else None, "source": "local_simulation"}
+
+    def _assign_crew(self, crew_id: str, ship_id: str) -> dict:
+        crew = self.crew_roster.get(crew_id)
+        if not crew:
+            raise GameError("unknown crew member")
+        destination = self._docked_ship(ship_id)
+        if destination["location"] != self.location or destination.get("galaxy", "home") != self.ship.get("galaxy", "home"):
+            raise GameError("meet the target ship at the current starport")
+        source_id = crew.get("ship_id")
+        if source_id == ship_id:
+            raise GameError("crew member already assigned to this ship")
+        if source_id:
+            source = self._docked_ship(source_id)
+            if source["location"] != destination["location"] or source.get("galaxy", "home") != destination.get("galaxy", "home"):
+                raise GameError("both ships must be docked together to transfer crew")
+        elif (crew.get("location") != destination["location"] or
+              crew.get("galaxy", "home") != destination.get("galaxy", "home")):
+            raise GameError("recruit is waiting at another starport")
+        if self.crew_member(ship_id, crew["role"]):
+            raise GameError("ship already has that specialist role")
+        if sum(c.get("ship_id") == ship_id for c in self.crew_roster.values()) >= self.crew_capacity(destination):
+            raise GameError("ship crew berths are full")
+        crew.update(ship_id=ship_id, location=destination["location"],
+                    galaxy=destination.get("galaxy", "home"))
+        return {"crew_id": crew_id, "name": crew["name"], "ship_id": ship_id,
+                "role": crew["role"]}
+
+    def _unassign_crew(self, crew_id: str) -> dict:
+        crew = self.crew_roster.get(crew_id)
+        if not crew or not crew.get("ship_id"):
+            raise GameError("crew member is not assigned")
+        ship = self._docked_ship(crew["ship_id"])
+        if ship["location"] != self.location or ship.get("galaxy", "home") != self.ship.get("galaxy", "home"):
+            raise GameError("meet the ship at its starport to disembark crew")
+        former_ship = crew["ship_id"]
+        crew.update(ship_id=None, location=ship["location"],
+                    galaxy=ship.get("galaxy", "home"))
+        return {"crew_id": crew_id, "name": crew["name"],
+                "port": ship["location"], "former_ship_id": former_ship}
+
+    def _rename_ship(self, ship_id: str, name: str) -> dict:
+        if ship_id not in self.fleet or not isinstance(name, str):
+            raise GameError("choose a valid ship and name")
+        name = name.strip()
+        if not 2 <= len(name) <= 28 or not name.isprintable():
+            raise GameError("ship name must be 2–28 printable characters")
+        self.fleet[ship_id]["name"] = name
+        return {"ship_id": ship_id, "name": name}
+
+    def _transfer_cargo(self, source_id: str, destination_id: str, good: str, amount: int) -> dict:
+        if source_id == destination_id or good not in GOODS or type(amount) is not int or amount <= 0:
+            raise GameError("choose two ships and a positive cargo amount")
+        source, target = self._docked_ship(source_id), self._docked_ship(destination_id)
+        if (source["location"] != target["location"] or source.get("galaxy", "home") != target.get("galaxy", "home")
+                or source["location"] != self.location or source.get("galaxy", "home") != self.ship.get("galaxy", "home")):
+            raise GameError("both ships must be docked together at the current port")
+        if source["cargo"].get(good, 0) < amount:
+            raise GameError("source hold lacks that cargo")
+        if sum(target["cargo"].values()) + amount > target["capacity"]:
+            raise GameError("destination hold has insufficient space")
+        eligible = min(amount, source.get("export_cargo", {}).get(good, 0))
+        source["cargo"][good] -= amount
+        target["cargo"][good] = target["cargo"].get(good, 0) + amount
+        source.setdefault("export_cargo", {})[good] = source.get("export_cargo", {}).get(good, 0) - eligible
+        target.setdefault("export_cargo", {})[good] = target.get("export_cargo", {}).get(good, 0) + eligible
+        return {"source_id": source_id, "destination_id": destination_id,
+                "good": good, "amount": amount, "imported": eligible}
+
+    def award_crew_experience(self, ship_id: str, role: str, amount: int) -> dict | None:
+        """Earn skills only from completed game events or verified RF receipts."""
+        crew = self.crew_member(ship_id, role)
+        if not crew:
+            return None
+        crew["xp"] = max(0, crew.get("xp", 0)) + amount
+        crew["level"] = max(crew["level"], 3 if crew["xp"] >= 9 else 2 if crew["xp"] >= 3 else 1)
+        return {"crew_id": crew["id"], "level": crew["level"], "xp": crew["xp"]}
+
     def _purchase_ship(self, tier: int = 0, class_id: str | None = None) -> dict:
         hull = None
         if class_id is not None:
@@ -1256,6 +1418,9 @@ class Game:
         if ship_id not in self.fleet or origin not in self.ports or amount <= 0:
             raise GameError("invalid mission damage")
         ship = self.fleet[ship_id]
+        officer = self.crew_member(ship_id, "signal")
+        prevented = min(amount - 1, officer["level"] * 2) if officer else 0
+        amount -= prevented
         ship["condition"] = max(0, ship["condition"] - amount)
         ship["location"] = origin
         ship.pop("radio_mission", None)
@@ -1266,12 +1431,17 @@ class Game:
             passenger = ship.get("vip_job")
             if passenger in self.vip_jobs:
                 self.vip_jobs[passenger]["status"] = "lost"
+            for crew in self.crew_roster.values():
+                if crew.get("ship_id") == ship_id:
+                    crew.update(ship_id=None, location=origin,
+                                galaxy=ship.get("galaxy", "home"))
             del self.fleet[ship_id]
             if self.active_ship_id == ship_id:
                 self.active_ship_id = next(iter(self.fleet), "")
         if self.active_ship_id:
             self._bind_ship()
-        return {"ship_id": ship_id, "damage": amount, "destroyed": destroyed,
+        return {"ship_id": ship_id, "damage": amount, "damage_prevented": prevented,
+                "destroyed": destroyed,
                 "condition": 0 if destroyed else ship["condition"], "returned_to": origin}
 
     @classmethod
@@ -1392,6 +1562,16 @@ class Game:
                 result = self._purchase_ship(**kwargs)
             elif action == "select_ship":
                 result = self._select_ship(**kwargs)
+            elif action == "rename_ship":
+                result = self._rename_ship(**kwargs)
+            elif action == "transfer_cargo":
+                result = self._transfer_cargo(**kwargs)
+            elif action == "hire_crew":
+                result = self._hire_crew(**kwargs)
+            elif action == "assign_crew":
+                result = self._assign_crew(**kwargs)
+            elif action == "unassign_crew":
+                result = self._unassign_crew(**kwargs)
             elif action == "set_hard_mode":
                 result = self._set_hard_mode(**kwargs)
             elif action == "accept_contract":
@@ -1513,6 +1693,10 @@ class Game:
                        self.ports[self.location]["distance"])
         risk = self.route_risk(self.location, destination)
         fuel_cost = max(2, distance * 2) + (4 if blocked else 0) + (4 if risk["kind"] == "pirates" and pirate_stance == "evade" else 0)
+        pilot = self.crew_member(self.active_ship_id, "pilot")
+        engineer = self.crew_member(self.active_ship_id, "engineer")
+        if pilot:
+            fuel_cost = max(1, fuel_cost - pilot["level"])
         if fuel_cost > self.ship["fuel"]:
             raise GameError("insufficient ship fuel")
         if self.ship["condition"] < 10:
@@ -1523,6 +1707,8 @@ class Game:
             mitigation += 6
         if risk["kind"] != "clear" and "reinforced_plating" in self.faction_perks:
             mitigation += 3
+        if engineer:
+            mitigation += engineer["level"] * 2
         if risk["kind"] == "pirates":
             if pirate_stance == "evade":
                 mitigation += 2
@@ -1533,7 +1719,8 @@ class Game:
                         "outcome": "Pirates repelled" if "defense" in equipment else "Hard-fought escape"}
                 self.factions["security"] += 1
         hazard_damage = max(0, risk["damage"] - mitigation)
-        self.ship["condition"] = max(0, self.ship["condition"] - max(1, distance) - hazard_damage)
+        wear = max(1, distance - (engineer["level"] if engineer else 0))
+        self.ship["condition"] = max(0, self.ship["condition"] - wear - hazard_damage)
         if risk["kind"] == "pirates" and pirate_stance == "pay":
             # A capped pirate toll makes a dangerous route matter without
             # deleting a reserved cargo manifest or creating a dead-end.
@@ -1545,7 +1732,7 @@ class Game:
             self.factions["pirates"] += 1
         if blocked:
             risk = {**risk, "navigator_bypass": True}
-        speed = max(1, int(self.ship.get("speed", 1)))
+        speed = max(1, int(self.ship.get("speed", 1)) + (1 if pilot and pilot["level"] >= 2 else 0))
         travel_seconds = min(10, max(1, math.ceil(distance * 2 / speed)))
         arrival_at = time.time() + travel_seconds
         self.ship["destination"] = destination
@@ -1554,6 +1741,8 @@ class Game:
         self.ship["departed_at"] = arrival_at - travel_seconds
         self.ship["travel_seconds"] = travel_seconds
         self.ship["origin_port"] = self.location
+        self.award_crew_experience(self.active_ship_id, "pilot", 1)
+        self.award_crew_experience(self.active_ship_id, "engineer", 1)
         return {"destination": destination, "arrival_tick": self.tick,
                 "arrival_at": arrival_at, "fuel_cost": fuel_cost,
                 "travel_seconds": travel_seconds, "hazard": risk,
@@ -1690,7 +1879,9 @@ class Game:
 
     def _repair(self) -> dict:
         self._available()
-        discount_percent = 15 * self.haven_facilities.get("repair_bay", 0)
+        engineer = self.crew_member(self.active_ship_id, "engineer")
+        discount_percent = min(90, 15 * self.haven_facilities.get("repair_bay", 0) +
+                               (5 * engineer["level"] if engineer else 0))
         cost = math.ceil((100 - self.ship["condition"]) * 2 * (100 - discount_percent) / 100)
         if self.credits < cost:
             raise GameError("insufficient credits")

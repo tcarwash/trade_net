@@ -190,9 +190,18 @@ antagonizing them in subsequent encounters.
 
 ## Phase 6 — Fleet roles, crew and expedition planning
 
-- [ ] Specialized ships: scout, freighter, fast VIP courier, escort and RF relay.
-- [ ] Hireable navigator, engineer, trader, security officer, scientist and
-      radio operator; bounded skill growth and unique side quests.
+- [x] Multiple separately commanded ships with persistent holds, condition,
+      destinations and upgrades; human-readable custom ship names.
+- [x] Same-port ship-to-ship cargo transfers that preserve imported provenance.
+- [x] Three deterministic rotating crew offers per starport, hiring fees,
+      dockside reassignment and per-hull berth limits (two to four).
+- [x] Four active specialist roles: pilot (fuel/speed), engineer (damage/repair),
+      broker (local contract payouts) and signal officer (real-RF failure hull
+      mitigation). Bounded skills and mission-driven XP persist across saves.
+- [x] Signal officer experience requires a genuinely verified partner delivery;
+      fictional ◇ contracts do not award radio skill or transmit frames.
+- [ ] Escort, security, science and navigator specializations, crew side quests,
+      retirement and unique recruit traits.
 - [ ] Multi-leg expedition planner with estimated profit, fuel and risks.
 - [ ] Opt-in automation of routine local routes. Player decisions interrupt
       automation for hazards, special cargo and encounters.
@@ -265,7 +274,8 @@ intentional, legible operator action.
 
 The current solo vertical slice includes incidents, multi-stage expeditions,
 one-time and repeating dockside encounters, six upgradable Haven facilities,
-warehouse-backed local requisitions,
+warehouse-backed local requisitions, recruitable ship crews and co-located
+fleet cargo transfers,
 recurring local NPC haulers, rival contracts and delayed faction follow-ups.
 One-time alliance/feud arcs, four permanent fleet perks and named recurring
 nemeses now provide lasting consequences. Their shipments, missions and market

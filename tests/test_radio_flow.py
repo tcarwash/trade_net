@@ -98,6 +98,10 @@ class RadioFlowTests(unittest.TestCase):
             "stock": [1, 2, 3], "production": [2, 3, 4], "observed_at": 100}
         alice.radio_contracts["W3CCC"] = [{"id": "W3CCC-C001", "good": "ore",
             "quantity": 3, "status": "open"}]
+        alice.game.crew_roster["crew-1"] = {
+            "id": "crew-1", "name": "Sera Moss", "role": "signal", "level": 1,
+            "xp": 0, "ship_id": alice.game.active_ship_id,
+            "location": "Haven", "origin": "Haven"}
         delivery = radio_exchange.encode_message({
             "v": 1, "t": "delivery", "i": alice.radio_reservations[request["id"]]["message_id"],
             "f": alice.callsign, "d": bob.callsign, "c": request["id"],
@@ -118,8 +122,10 @@ class RadioFlowTests(unittest.TestCase):
         self.assertEqual(alice.radio_transmissions[radio_exchange.decode(delivery)["i"]]["status"], "delivered")
         expected_reward = min(1500, 100 + 2 * BASE_PRICE[good] * quantity)
         self.assertEqual(alice.game.credits, credits_before_delivery + expected_reward)
+        self.assertEqual(alice.game.crew_roster["crew-1"]["xp"], 2)
         receive(alice, delivery_reply)
         self.assertEqual(alice.game.credits, credits_before_delivery + expected_reward)
+        self.assertEqual(alice.game.crew_roster["crew-1"]["xp"], 2)
         self.assertNotIn(request["id"], alice.radio_reservations)
         self.assertTrue(any(c["status"] == "open" and c["id"] != request["id"]
                             for c in alice.radio_contracts[bob.callsign]))

@@ -39,6 +39,15 @@ Some radio contracts are **long-haul manifests** requesting two resource types a
 
 The economy advances in shared five-minute UTC ticks, including when you're away. Each ship has independent cargo, fuel, condition, location, and upgrades. Optional **hard mode** offers better selling prices but permanently destroys ships reduced to zero condition.
 
+**Fleet & crew operations** are in Fleet command. Name your vessels, select any ship even while another is traveling, and transfer goods between two ships docked at the same starport; imported-cargo provenance remains attached during transfers. Local starports offer three rotating crew candidates every 144 economy ticks. Hire a specialist for a one-time fee, then assign or reassign them when ships meet at a port. Each ship has two to four crew berths based on its tier and can carry one of each role:
+
+- **Pilot:** saves one fuel per level on local flights; experienced pilots shorten journey time.
+- **Engineer:** reduces route damage and discounts repairs.
+- **Broker:** increases payouts for ◇ local freight deliveries, stacking with the Haven Cargo Exchange.
+- **Signal officer:** prevents some hull damage after a genuinely failed radio transfer, and gains experience only from verified ◉ partner-delivery acknowledgments.
+
+Crew accumulate experience from relevant missions and improve up to level three. They persist in saves, and survive the loss of a ship in hard mode as unassigned crew back at its origin. Recruiting, transfers, and other management controls are strictly local game actions; none transmits.
+
 The local galaxy now contains **ten starports** with distinct production specializations and roles. First visits reveal their character and award 90 exploration credits per new destination. Older five-port saves gain the new locations while preserving existing market stock. The market remembers the lowest buy and highest sell quote you have actually observed for each commodity while docked. The market-intel column shows the remembered port and its price difference from your current quote; those quotes are historical, not guaranteed live offers.
 
 Space isn't empty: the asteroid field circles the central sector, blocking direct arrivals at one starport for 90 seconds before moving to the next. Ionized gas clouds damage hulls, while pirate interceptions cause damage and a capped credit toll. The route preview warns you about conditions before you launch, and better ship tiers mitigate hazard damage. Route hazards are deterministic for a given route and economy interval, not rerolled randomly on every button press.

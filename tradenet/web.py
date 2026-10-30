@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -44,6 +45,18 @@ class App:
         for contract in self.game.contracts.values():
             contract["payload_bytes"] = len(manifest_payload(contract))
         self.persist()
+        self.sync_clock()
+
+    def sync_clock(self, now=None):
+        """All local/remote worlds share absolute UTC tick boundaries."""
+        now = time.time() if now is None else now
+        first = self.game.clock_epoch is None or any(w.clock_epoch is None for w in self.federation.worlds.values())
+        results = {"local": self.game.sync_utc(now)}
+        for station, world in self.federation.worlds.items():
+            results[station] = world.sync_utc(now)
+        if first or any(r["advanced"] for r in results.values()):
+            self.persist()
+        return results
 
     def persist(self):
         self.game.save(self.save)
@@ -54,9 +67,13 @@ class App:
         self.mail.save(self.mail_save)
 
     def state(self):
+        self.sync_clock()
         return {"game": self.game.to_dict(), "network": self.net.to_dict(),
                 "federation": self.federation.to_dict(),
                 "mail": self.mail.to_dict(),
+                "clock": {"epoch": self.game.clock_epoch,
+                          "tick_seconds": self.game.tick_seconds,
+                          "next_boundary_utc": (self.game.clock_epoch + 1) * self.game.tick_seconds},
                 "goods": GOODS,
                 "prices": {port: {good: {"buy": self.game.price(port, good, "buy"),
                                             "sell": self.game.price(port, good, "sell")}
@@ -87,7 +104,8 @@ class App:
             result = self.federation.cancel(str(request["trade_id"]))
         elif action == "exchange_queue":
             result = self.federation.queue_trade(self.mail, str(request["trade_id"]),
-                                                 route=request.get("route"))
+                                                 route=request.get("route"),
+                                                 weight=str(request.get("weight", "light")))
         elif action == "exchange_modem_upgrade":
             seller = next(iter(self.federation.worlds.values()))
             result = seller.command(str(request["id"]), "buy_ship")
@@ -100,6 +118,10 @@ class App:
             station = str(request["station"])
             self.mail.set_online(station, bool(request["online"]))
             result = {"station": station, "online": self.mail.stations[station]["online"]}
+        elif action == "sync_clock":
+            result = self.sync_clock()
+        elif action == "wait":
+            raise GameError("manual economy ticks are disabled in real-time web mode")
         else:
             result = self.game.command(str(request["id"]), str(action),
                                        **request.get("args", {}))

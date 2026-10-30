@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 
 TYPES = {"trade": 1, "market": 2, "neighbors": 3, "custody": 4,
-         "fragment_request": 5, "status": 6}
+         "fragment_request": 5, "status": 6, "contracts": 7}
 REVERSE = {value: name for name, value in TYPES.items()}
 MAGIC = b"TN1"
 

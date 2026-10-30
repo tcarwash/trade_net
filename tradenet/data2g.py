@@ -1,7 +1,8 @@
-"""Conservative Data2G TCP/KISS adapter for operator-run on-air trials.
+"""Bounded Data2G TCP/KISS adapter for Trade Net radio messages.
 
-Probe/listen are receive-only. Transmission requires an explicit interactive
-confirmation every invocation. This is not an unattended radio scheduler.
+The standalone CLI asks before its diagnostic send. Web Comms authorizes an
+outgoing message with its send button and can send automatic application
+receipts for addressed messages.
 """
 
 from __future__ import annotations
@@ -152,7 +153,8 @@ class Data2GClient:
         if self.group_port is None:
             raise Data2GError("open the group first")
         available = [vars(m) for m in self.modes()]
-        if mode_id not in {m["mode_id"] for m in eligible_modes(available, ship_tier)}:
+        if mode_id not in {m["mode_id"] for m in eligible_modes(available, ship_tier)
+                           if "ack" not in m["mode_id"].lower()}:
             raise Data2GError("mode unavailable or exceeds ship bandwidth ceiling")
         self.command(f"BCAST MODE {self.group_port} {mode_id}")
 
@@ -178,7 +180,7 @@ class Data2GClient:
                     raise Data2GError("oversized KISS frame")
 
     def send_once(self, payload: bytes, approved: bool):
-        """One KISS frame; approval must come from the interactive CLI."""
+        """Queue one bounded KISS frame after the calling workflow authorizes it."""
         if not approved or self.group_port is None or not self.kiss_socket:
             raise Data2GError("transmission not authorized")
         if not 1 <= len(payload) <= 200:

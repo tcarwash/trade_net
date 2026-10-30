@@ -1,6 +1,6 @@
 # Trade Net on-air testing checklist
 
-**Status:** operator-driven experimental harness; not yet an end-to-end multiplayer game over RF. Never use this software for actual emergency traffic.
+**Status:** Trade Net's web Comms path now sends and receives application messages through Data2G. The command-line tool below remains a separate single-frame diagnostic. A two-station RF run is still required to verify modem and on-air interoperability. Never use this software for actual emergency traffic.
 
 ## Traffic rule
 
@@ -51,7 +51,8 @@ The CLI prints the **actual file byte count and SHA-256 prefix**, then requires 
 | Reject oversized single-frame test | Automated unit tests |
 | Receive-only group listener | Implemented, requires live host validation |
 | One manually authorized TX frame | Implemented, requires dummy-load then live validation |
-| Matching remote app ACK and two-galaxy settlement | Simulator only |
-| Real multipart RF retry / relay custody | Simulator only |
+| Matching remote app receipt and station-local settlement | Implemented in web Comms; two-station RF run pending |
+| Multipart application message and retry | Implemented in web Comms; two-station RF run pending |
+| Relay custody | Outside the direct station exchange flow |
 
-Start with a no-PTT receive-only test, then dummy-load single-frame send, then a coordinated low-duty on-air exchange. Do not enable unattended transmissions until the real adapter has retry budgets, station identification, safe operator controls and demonstrated interoperability.
+Start with a no-PTT receive-only test, then dummy-load single-frame send, then a coordinated low-duty on-air exchange. The web receiver can automatically send application receipts after receiving a complete addressed message; run it only with an appropriate Data2G transmit setup.

@@ -33,6 +33,7 @@ class Federation:
     events: list = field(default_factory=list)
     schema_version: int = 1
     reports: dict = field(default_factory=dict)
+    contract_syncs: dict = field(default_factory=dict)
 
     @classmethod
     def demo(cls, local_id="AG7SU", remote_id="SIM-K7OR", seed=42):
@@ -56,10 +57,24 @@ class Federation:
         report = {"source": second_hop, "via": remote_id,
                   "observed_epoch": int(time.time() // 300),
                   "provenance": "simulated",
+                  "specialization": third.specialization,
+                  "specialty_stock": third.ports["Kepler"]["stock"][third.specialization],
+                  "specialty_production": third.ports["Kepler"]["production"][third.specialization],
                   "ore_stock": third.ports["Kepler"]["stock"]["ore"],
                   "ore_production": third.ports["Kepler"]["production"]["ore"],
                   "market": {good: third.price("Kepler", good, "sell")
                              for good in ("food", "ore", "fuel", "medicine", *RARE)}}
+        report["contracts"] = [{"id": f"{second_hop}-KEPLER-001",
+                                "seller_hub": second_hop, "delivery_hub": remote_id,
+                                "good": third.specialization,
+                                "quantity": min(2, third.ports["Kepler"]["stock"][third.specialization]),
+                                "unit_value": third.price("Kepler", third.specialization, "sell")
+                                }]
+        for world in (a, b):
+            source_stock = world.ports["Kepler"]["stock"]
+            moved = min(6, source_stock[world.specialization])
+            source_stock[world.specialization] -= moved
+            world.ports["Haven"]["stock"][world.specialization] += moved
         return cls({local_id: a, remote_id: b}, Network(local_id),
                    reports={second_hop: report})
 
@@ -93,22 +108,32 @@ class Federation:
             return t
         if t["status"] != "offered":
             raise GameError("trade cannot be reserved")
-        seller, buyer = self.worlds[t["seller"]], self.worlds[t["buyer"]]
-        due = t["quantity"] * t["unit_price"]
-        if seller.cargo[t["good"]] < t["quantity"]:
-            raise GameError("seller cargo is insufficient")
-        if buyer.credits < due:
-            raise GameError("buyer credit balance is insufficient")
-        if buyer.cargo_used() + buyer.incoming_reserved + t["quantity"] > buyer.ship["capacity"]:
-            raise GameError("buyer cargo hold lacks capacity")
-        seller.cargo[t["good"]] -= t["quantity"]
-        buyer.credits -= due
-        buyer.incoming_reserved += t["quantity"]
-        t["seller_hold"] = seller.active_ship_id
-        t["buyer_hold"] = buyer.active_ship_id
+        link_key = ":".join(sorted((t["seller"], t["buyer"])))
+        if self.contract_syncs.get(link_key, {}).get("status") != "synchronized":
+            raise GameError("synchronize hub contracts before reserving delivery cargo")
+        seller = self.worlds[t["seller"]]
+        stock = seller.ports["Haven"]["stock"]
+        if stock.get(t["good"], 0) < t["quantity"]:
+            missing = t["quantity"] - stock.get(t["good"], 0)
+            for port, state in seller.ports.items():
+                if port == "Haven" or missing <= 0:
+                    continue
+                moved = min(missing, state["stock"].get(t["good"], 0))
+                state["stock"][t["good"]] -= moved
+                stock[t["good"]] += moved
+                missing -= moved
+            if missing:
+                moved = min(missing, seller.cargo.get(t["good"], 0))
+                seller.cargo[t["good"]] -= moved
+                stock[t["good"]] += moved
+                missing -= moved
+            if missing:
+                raise GameError("origin hub stock is insufficient")
+        stock[t["good"]] -= t["quantity"]
+        t["seller_hold"] = "Haven"
         t["status"] = "reserved"
         t["custody"] = t["seller"]
-        self.events.append({"trade": trade_id, "event": "reserved", "escrow_credits": due})
+        self.events.append({"trade": trade_id, "event": "reserved", "escrow_credits": 0})
         return t
 
     def dispatch(self, trade_id: str, loss=.15, route=None):
@@ -167,8 +192,6 @@ class Federation:
         if ship_id not in seller.fleet:
             raise GameError("unknown mission ship")
         vessel = seller.fleet[ship_id]
-        if vessel.get("radio_mission") or vessel.get("destination") or vessel["condition"] <= 0:
-            raise GameError("ship is unavailable for a radio mission")
         tier = TIERS[vessel.get("modem_tier", 0)]
         msg = mail.enqueue("trade:" + trade_id, route, payload, priority=2,
                            frames_per_tick=tier["frames_per_tick"],
@@ -178,7 +201,6 @@ class Federation:
         t["transmitted_bytes"] = len(payload)
         t["ship_id"] = ship_id
         t["mission_origin"] = vessel["location"]
-        vessel["radio_mission"] = trade_id
         t["status"] = "queued"
         t["custody"] = t["seller"]
         self.events.append({"trade": trade_id, "event": "queued"})
@@ -204,10 +226,16 @@ class Federation:
         provenance = {"source": report["source"], "via": report["via"],
                       "epoch": report["observed_epoch"],
                       "provenance": report["provenance"]}
-        hint = {**provenance, "ore_stock": report["ore_stock"],
+        hint = {**provenance, "specialization": report.get("specialization"),
+                "specialty_stock": report.get("specialty_stock"),
+                "specialty_production": report.get("specialty_production"),
+                "ore_stock": report["ore_stock"],
                 "ore_production": report["ore_production"]}
         items = [Item("trade", core), Item("neighbors", json.dumps(hint, separators=(",", ":")).encode())]
         if weight == "heavy":
+            contracts = report.get("contracts", [])
+            items.append(Item("contracts", json.dumps({**provenance, "offers": contracts},
+                                                         separators=(",", ":")).encode()))
             items.append(Item("market", json.dumps({**provenance, "prices": report["market"]},
                                                    separators=(",", ":")).encode()))
         return encode_bundle(items)
@@ -224,28 +252,65 @@ class Federation:
             t["custody"] = msg["route"][msg["hop"]]
             if msg["status"] == "acknowledged":
                 t["status"] = "delivered"
-                vessel = self.worlds[t["seller"]].fleet.get(t.get("ship_id"))
-                if vessel:
-                    vessel.pop("radio_mission", None)
                 t["receipt"] = {"trade_id": t["id"], "terms_hash": t["hash"],
                                 "receiver": t["buyer"], "accepted": True,
                                 "receipt_id": msg["receipt_id"]}
                 changes.append({"trade": t["id"], "status": "delivered"})
+                self.settle(t["id"])
+                changes[-1]["status"] = "settled"
             elif msg["status"] == "expired":
                 # Retain escrow for explicit reconciliation; automatic refund
                 # would risk duplicate settlement after delayed delivery.
                 t["status"] = "reconcile_required"
-                damage = None
-                if t.get("ship_id"):
-                    seller = self.worlds[t["seller"]]
-                    if t["ship_id"] in seller.fleet:
-                        damage = seller.damage_ship(t["ship_id"],
-                                                    min(90, 25 + 5 * msg["frames_lost"]),
-                                                    t["mission_origin"])
                 changes.append({"trade": t["id"], "status": "reconcile_required",
-                                "ship_result": damage})
+                                "ship_result": None})
+        for key, sync in self.contract_syncs.items():
+            if sync.get("status") != "queued":
+                continue
+            message = mail.messages.get(sync["message_id"], {})
+            if message.get("status") == "acknowledged":
+                left, right = (self.worlds[x] for x in sync["route"])
+                useful = min(512, max(1, sync["bytes"]))
+                reward = min(25, max(1, (useful + 63) // 64))
+                left.credits += reward
+                right.credits += reward
+                sync.update(status="synchronized", useful_bytes=useful,
+                            reward_per_hub=reward, receipt_id=message["receipt_id"])
+                changes.append({"contracts": key, "status": "synchronized",
+                                "reward_per_hub": reward})
+            elif message.get("status") == "expired":
+                sync["status"] = "retry_available"
+                changes.append({"contracts": key, "status": "retry_available"})
         self.events.extend(changes)
         return changes
+
+    def queue_contract_sync(self, mail: MailNetwork, route=None):
+        """Exchange the participating hubs' actual delivery offers."""
+        route = route or list(self.worlds)
+        if (not isinstance(route, list) or len(route) != 2 or
+                route[0] not in self.worlds or route[1] not in self.worlds or
+                route[0] == route[1]):
+            raise GameError("contract sync needs two participating hubs")
+        key = ":".join(sorted(route))
+        sync = self.contract_syncs.get(key)
+        if sync and sync.get("status") in ("queued", "synchronized"):
+            return mail.messages[sync["message_id"]]
+        offers = [{"id": t["id"], "seller": t["seller"], "receiver": t["buyer"],
+                   "good": t["good"], "quantity": t["quantity"],
+                   "unit_value": t["unit_price"]}
+                  for t in self.trades.values() if t["status"] in ("offered", "reserved")]
+        payload = encode_bundle([Item("contracts", json.dumps(
+            {"hubs": route, "offers": offers}, sort_keys=True,
+            separators=(",", ":")).encode())])
+        for station in route:
+            mail.add_station(station)
+        attempt = (sync or {}).get("attempts", 0) + 1
+        message_id = f"contracts:{key}:{attempt}"
+        mail.enqueue(message_id, route, payload, priority=2)
+        self.contract_syncs[key] = {"status": "queued", "message_id": message_id,
+                                    "route": route[:], "bytes": len(payload),
+                                    "attempts": attempt}
+        return mail.messages[message_id]
 
     def settle(self, trade_id: str, receipt: dict | None = None):
         t = self._trade(trade_id)
@@ -257,18 +322,19 @@ class Federation:
         if supplied != t["receipt"] or supplied["terms_hash"] != t["hash"]:
             raise GameError("receipt does not match trade")
         seller, buyer = self.worlds[t["seller"]], self.worlds[t["buyer"]]
-        quantity, due = t["quantity"], t["quantity"] * t["unit_price"]
+        quantity = t["quantity"]
         # Both worlds are owned by this simulation coordinator. Applying the
         # two deltas here is atomic in memory and saved as one JSON bundle.
-        destination_ship = buyer.fleet.get(t.get("buyer_hold", buyer.active_ship_id))
-        if destination_ship is None:
-            raise GameError("receiving ship unavailable; reconcile cargo before settlement")
-        destination_ship["cargo"][t["good"]] += quantity
-        buyer.incoming_reserved -= quantity
-        seller.credits += due
+        buyer.ports["Haven"]["stock"][t["good"]] += quantity
+        useful_bytes = max(1, min(512, int(t.get("transmitted_bytes", 1))))
+        reward = min(25, max(1, (useful_bytes + 63) // 64))
+        seller.credits += reward
+        buyer.credits += reward
         t["status"] = "settled"
         t["settlement"] = {"trade_id": trade_id, "receipt_id": supplied["receipt_id"],
-                           "quantity": quantity, "credits": due,
+                           "quantity": quantity, "goods_delivered_to": "Haven",
+                           "seller_credits": reward, "receiver_credits": reward,
+                           "useful_bytes": useful_bytes,
                            "ledger_hash": canonical_hash({"trade": t["hash"], "receipt": supplied})}
         self.events.append({"trade": trade_id, "event": "settled"})
         return t["settlement"]
@@ -278,12 +344,7 @@ class Federation:
         if t["status"] != "reserved":
             raise GameError("only undispatched trades can be cancelled")
         seller = self.worlds[t["seller"]]
-        hold = seller.fleet.get(t.get("seller_hold", seller.active_ship_id))
-        if hold is None:
-            raise GameError("originating ship unavailable; reconcile cargo before cancellation")
-        hold["cargo"][t["good"]] += t["quantity"]
-        self.worlds[t["buyer"]].credits += t["quantity"] * t["unit_price"]
-        self.worlds[t["buyer"]].incoming_reserved -= t["quantity"]
+        seller.ports["Haven"]["stock"][t["good"]] += t["quantity"]
         t["status"] = "cancelled"
         self.events.append({"trade": trade_id, "event": "cancelled"})
 
@@ -296,15 +357,50 @@ class Federation:
         return {"schema_version": self.schema_version,
                 "worlds": {name: world.to_dict() for name, world in self.worlds.items()},
                 "network": self.network.to_dict(), "trades": self.trades,
-                "events": self.events, "reports": self.reports}
+                "events": self.events, "reports": self.reports,
+                "contract_syncs": self.contract_syncs}
 
     @classmethod
     def from_dict(cls, data):
         if data.get("schema_version") != 1:
             raise GameError("unsupported federation version")
-        return cls({name: Game.from_dict(world) for name, world in data["worlds"].items()},
+        instance = cls({name: Game.from_dict(world) for name, world in data["worlds"].items()},
                    Network.from_dict(data["network"]), data["trades"], data["events"],
-                   reports=data.get("reports", {}))
+                   reports=data.get("reports", {}),
+                   contract_syncs=data.get("contract_syncs", {}))
+        # Migrate offered demo parcels from the previous ship-cargo model into
+        # their source hub stock without changing total inventory.
+        for trade in instance.trades.values():
+            if trade.get("status") != "offered" or trade.get("seller_hold"):
+                continue
+            seller = instance.worlds[trade["seller"]]
+            amount = min(trade["quantity"], seller.cargo.get(trade["good"], 0))
+            seller.cargo[trade["good"]] -= amount
+            seller.ports["Haven"]["stock"][trade["good"]] += amount
+            trade["seller_hold"] = "Haven"
+        if not instance.reports and len(instance.worlds) >= 2:
+            remote_id = list(instance.worlds)[-1]
+            remote = instance.worlds[remote_id]
+            third = Game.new(int(remote.to_dict().get("seed", 42)) + 1,
+                             "SIM-W7ABC Galaxy")
+            source = "SIM-W7ABC"
+            rare = third.specialization
+            instance.reports[source] = {
+                "source": source, "via": remote_id,
+                "observed_epoch": int(time.time() // 300), "provenance": "simulated",
+                "specialization": rare,
+                "specialty_stock": third.ports["Kepler"]["stock"][rare],
+                "specialty_production": third.ports["Kepler"]["production"][rare],
+                "ore_stock": third.ports["Kepler"]["stock"]["ore"],
+                "ore_production": third.ports["Kepler"]["production"]["ore"],
+                "market": {good: third.price("Kepler", good, "sell")
+                           for good in ("food", "ore", "fuel", "medicine", *RARE)},
+                "contracts": [{"id": f"{source}-KEPLER-001", "seller_hub": source,
+                               "delivery_hub": remote_id, "good": rare,
+                               "quantity": min(2, third.ports["Kepler"]["stock"][rare]),
+                               "unit_value": third.price("Kepler", rare, "sell")}]
+            }
+        return instance
 
     def save(self, path):
         path = Path(path)

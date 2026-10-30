@@ -10,6 +10,7 @@ import hashlib
 import json
 import math
 import random
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -27,6 +28,7 @@ class MailNetwork:
     tick: int = 0
     attempts: int = 0
     frame_bytes: int = 64
+    slots_per_window: int = 8
     schema_version: int = 1
 
     def add_station(self, station: str, online=True):
@@ -67,7 +69,8 @@ class MailNetwork:
                    "frames_per_tick": frames_per_tick, "bandwidth_hz": bandwidth_hz,
                    "hop": 0, "received_parts": [], "status": "queued",
                    "frames_attempted": 0, "frames_lost": 0,
-                   "receipt_id": None}
+                   "receipt_id": None, "timeslot": None,
+                   "slot_window": self.slots_per_window}
         self.messages[message_id] = message
         self.events.append({"tick": self.tick, "event": "queued", "id": message_id})
         return message
@@ -101,10 +104,36 @@ class MailNetwork:
         self.tick += 1
         events = []
         pending = sorted(self.messages.values(), key=lambda m: (-m["priority"], m["created"], m["id"]))
+        # Lease distinct slots on the shared simulated channel where possible.
+        # Endpoints derive the same initial preference from the message ID;
+        # the coordinator probes forward to avoid simultaneous use of the
+        # shared channel. When every slot is leased, remaining messages wait.
+        occupied = [False for _ in range(self.slots_per_window)]
+        for message in pending:
+            if message["status"] in ("acknowledged", "delivered", "expired", "aborted"):
+                continue
+            route = message["route"]
+            src, dst = route[message["hop"]:message["hop"] + 2]
+            preference = zlib.crc32(message["id"].encode()) % self.slots_per_window
+            choices = [(preference + offset) % self.slots_per_window
+                       for offset in range(self.slots_per_window)]
+            slot = next((candidate for candidate in choices
+                         if not occupied[candidate]), None)
+            message["deferred_this_window"] = slot is None
+            slot = preference if slot is None else slot
+            if not message["deferred_this_window"]:
+                occupied[slot] = True
+            message["timeslot"] = slot + 1
+            message["slot_window"] = self.slots_per_window
+            message["scheduled_tick"] = self.tick
+        pending.sort(key=lambda m: (m.get("timeslot") or 0,
+                                    -m["priority"], m["created"], m["id"]))
         for m in pending:
             if budget_frames <= 0:
                 break
             if m["status"] in ("acknowledged", "delivered", "expired", "aborted"):
+                continue
+            if m.get("deferred_this_window"):
                 continue
             if self.tick - m["created"] > m["ttl"]:
                 m["status"] = "expired"

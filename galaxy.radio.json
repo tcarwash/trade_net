@@ -1,0 +1,34 @@
+{
+  "transmissions": {},
+  "inbox": [],
+  "contacts": {},
+  "contracts": {
+    "AG7SU": [
+      {
+        "id": "AG7SU-C0001",
+        "issuer": "AG7SU",
+        "good": "ore",
+        "quantity": 10,
+        "status": "open"
+      },
+      {
+        "id": "AG7SU-C0002",
+        "issuer": "AG7SU",
+        "good": "mycelium",
+        "quantity": 5,
+        "status": "open"
+      },
+      {
+        "id": "AG7SU-C0003",
+        "issuer": "AG7SU",
+        "good": "aether",
+        "quantity": 5,
+        "status": "open"
+      }
+    ]
+  },
+  "resources": {},
+  "reservations": {},
+  "processed": {},
+  "assemblies": {}
+}

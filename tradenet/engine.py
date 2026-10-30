@@ -46,6 +46,7 @@ class Game:
     next_ship_number: int = 2
     hard_mode: bool = False
     galaxies: dict = field(default_factory=dict)
+    radio_state: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if not self.galaxies:
@@ -75,10 +76,15 @@ class Game:
 
     def _all_arrivals(self):
         for ship in self.fleet.values():
-            if ship.get("destination") is not None and self.tick >= ship["arrival_tick"]:
-                ship["location"] = ship.pop("destination")
-                ship["destination"] = None
-                ship["arrival_tick"] = None
+            if ship.get("destination") is not None:
+                arrival_at = ship.get("arrival_at")
+                arrived = (time.time() >= arrival_at if arrival_at is not None else
+                           self.tick >= (ship.get("arrival_tick") or self.tick + 1))
+                if arrived:
+                    ship["location"] = ship.pop("destination")
+                    ship["destination"] = None
+                    ship["arrival_tick"] = None
+                    ship.pop("arrival_at", None)
         if self.active_ship_id:
             self._bind_ship()
 
@@ -202,6 +208,7 @@ class Game:
 
     def command(self, command_id: str, action: str, **kwargs) -> dict:
         """Execute once. Repeated IDs return their original result without side effects."""
+        self._all_arrivals()
         if not command_id or len(command_id) > 128:
             raise GameError("command_id must contain 1-128 characters")
         if command_id in self.completed_commands:
@@ -297,10 +304,15 @@ class Game:
             raise GameError("repair ship before traveling")
         self.ship["fuel"] -= fuel_cost
         self.ship["condition"] = max(0, self.ship["condition"] - max(1, distance))
+        speed = max(1, int(self.ship.get("speed", 1)))
+        travel_seconds = min(10, max(1, math.ceil(distance * 2 / speed)))
+        arrival_at = time.time() + travel_seconds
         self.ship["destination"] = destination
-        self.ship["arrival_tick"] = self.tick + max(1, math.ceil(distance / self.ship.get("speed", 1)))
-        return {"destination": destination, "arrival_tick": self.ship["arrival_tick"],
-                "fuel_cost": fuel_cost}
+        self.ship["arrival_tick"] = None
+        self.ship["arrival_at"] = arrival_at
+        return {"destination": destination, "arrival_tick": self.tick,
+                "arrival_at": arrival_at, "fuel_cost": fuel_cost,
+                "travel_seconds": travel_seconds}
 
     def _jump(self, galaxy: str, destination: str, voyage_id: str) -> dict:
         self._available()

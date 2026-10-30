@@ -1,6 +1,9 @@
 # Direct Data2G integration plan
 
-Trade Net integrates directly with **Data2G**, not through radio-arcade. The initial `tradenet.data2g` command/KISS harness supports receive-only probing and manually authorized single-frame sends; it is not yet wired to the autonomous game mail queue. See [on-air test checklist](ON-AIR-TESTING.md).
+Trade Net integrates directly with **Data2G**. The web Comms receiver listens
+continuously on a broadcast group and sends application receipts for addressed
+first contact and contract deliveries. The `tradenet.data2g` CLI remains a
+separate single-frame diagnostic. See the [on-air test checklist](ON-AIR-TESTING.md).
 
 Data2G supports both connected hybrid-ARQ sessions and non-connected broadcast groups through its extended host/KISS interfaces, and offers narrowband (500 Hz) through wide (2400 Hz) operation. Consult the actual installed Data2G host's capabilities at runtime. Source: [Data2G README](https://github.com/arodland/Data2G#readme) and [architecture documentation](https://github.com/arodland/Data2G/blob/master/docs/ARCHITECTURE.md).
 
@@ -28,9 +31,8 @@ from the local Data2G host (command port 8300, KISS 8100). It is a capability
 snapshot, not a current link-status report. The shipyard displays its eligible
 data modes; control-only ACK modes are excluded. `eligible_ship_modes` applies
 each hull's ceiling and family restrictions. No mode is selected or transmitted
-by viewing or purchasing a ship. The mail simulator retains its three legacy
-bandwidth labels, throttling named hulls by their own frame budgets; it does
-not emulate a specific advertised PHY mode or its real airtime.
+by viewing or purchasing a ship. In web Comms, the selected ship's tier and
+named hull ceiling filter the live modes advertised by the connected host.
 
 Refresh the observation manually with the receive-only probe:
 
@@ -42,22 +44,22 @@ The command parser accepts CR-only, LF, and CRLF replies, including fragmented
 responses. The running game loads the saved observation once at startup; the
 probe prints the current list but does not overwrite that observation file.
 
-## Normal intergalactic travel
+## Hub transmissions
 
-The Flight deck's destination menu includes both local starports and other
-galaxies. A departure reserves the current ship for a meaningful voyage
-manifest in the durable mail outbox, costing ten fuel exactly once. Receipt
-confirmation moves that same ship and its cargo into the destination galaxy's
-markets. It does not transfer ownership to the lab's separate federation ledger.
-Crossings progress automatically on economy ticks; the debug radio-window
-control remains available for deterministic tests. Offline stations pause
-progress, and a missing/expired ACK never invents an arrival. Expired voyages
-remain pending reconciliation; a player-facing reconciliation workflow is not
-implemented yet. All of this remains simulated—no game action initiates RF.
+Ships travel only among local starports. The player enters another station's
+callsign in Comms to attempt first contact. Received frames exchange resource
+reports and each hub's own contracts. Later transmissions fulfill a contract
+issued by the receiving station; a matching application receipt confirms the
+stock transfer, credit reward and replacement demand. Larger messages carry
+heard second-hop resource and contract reports over multiple bounded frames.
+No ship enters another player's galaxy.
 
 Purchasing a faster ship unlocks a wider set of *eligible* modem choices. This is a gameplay entitlement, not a claim that the RF link can sustain that speed. The adapter intersects the entitlement with Data2G's **actually advertised** modes and current station/operator bandwidth configuration. If no wider mode is available, the ship can still operate using a narrower one. Data2G retains channel-aware rate selection in connected mode.
 
-The simulator currently models the difference as a per-logical-window frame budget; the numbers are gameplay balancing parameters, **not actual Data2G throughput specifications**. Frame size, FEC overhead, setup airtime, retries and available submodes must be measured on real Data2G builds before assigning on-air costs.
+Legacy frame-per-window figures in the ship catalog are game balancing values,
+not Data2G throughput specifications. The web radio deadline uses the selected
+host mode's advertised worst-case codeword duration; two-station RF measurement
+is still needed to validate physical airtime and delivery reliability.
 
 ## Suggested integration layers
 

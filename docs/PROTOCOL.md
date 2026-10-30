@@ -1,6 +1,48 @@
-# Trade Net — Architecture and Wire Concepts (Draft)
+# Trade Net — Architecture and Wire Protocol
 
-This is a design contract, not an implemented RF protocol.
+The local Data2G adapter now carries compact version 1 station-exchange frames.
+The broader game transport and inter-galaxy voyage concepts below remain
+separate from that live radio exchange.
+
+## Station exchange v1
+
+Frames are compact UTF-8 JSON and limited to 200 bytes. A complete application
+message may contain up to 4096 bytes and is split into at most 64 bounded
+`part` frames when necessary. Each part has the sender, destination, message
+ID, part index/count, and the complete message hash. The receiver stores
+partial messages, rejects conflicting parts, checks the complete hash, then
+applies the message once. Incomplete messages do not change inventory or
+credits. Every complete message has `v:1`,
+a unique message id `i`, sender `f`, and destination `d`. `contact` sends the
+sender's resource profile, open contracts, and optional neighbor summaries.
+The receiver credits its station once, applies the sender's information, and
+returns `contact_ack` with its own profile and contracts. Both stations own
+their own economy and contract book.
+
+After contact, `delivery` carries one contract id, good, and exact quantity.
+The receiving station checks its own open contract, adds accepted stock to its
+own hub, marks the contract fulfilled, creates replacement demand from its
+current stock, credits the receipt, and sends `delivery_ack`. The sender adds
+the receiver's credit reward, marks the old contract fulfilled, and stores the
+replacement contract. Repeated message ids return the saved receipt without
+crediting or adding stock again. Frames not addressed to the station are kept
+as gossip; advertised neighbor richness and contracts may be cached. Larger
+deliveries include available second-hop stock, production and contract reports.
+The sender only forwards reports it actually received, with observation time
+and reporting station retained in the receiver's cache.
+
+Credit awards are based on the bytes received, capped at 25 credits per frame.
+Receipts carry the reward for their reply bytes. The sender retains staged
+goods after timeout so it can retry the same message id; a confirmed rejection
+returns those goods. The local ship is damaged on timeout, and the receiver
+does not require a delivery setup action.
+
+Radio sends use four callsign-offset send windows in a repeating 12-second UTC
+period, with one local transmitter lock for manual sends and automatic replies.
+This spreads starts across stations; it cannot guarantee a clear channel or
+prevent overlap during long physical transmissions. Data2G still controls its
+own channel access. A sender marks success only after a matching application
+receipt with the original message ID, hash, destination and reply type.
 
 ## Components
 

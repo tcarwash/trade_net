@@ -104,6 +104,8 @@ class Federation:
         seller.cargo[t["good"]] -= t["quantity"]
         buyer.credits -= due
         buyer.incoming_reserved += t["quantity"]
+        t["seller_hold"] = seller.active_ship_id
+        t["buyer_hold"] = buyer.active_ship_id
         t["status"] = "reserved"
         t["custody"] = t["seller"]
         self.events.append({"trade": trade_id, "event": "reserved", "escrow_credits": due})
@@ -144,7 +146,8 @@ class Federation:
         self.events.append(event)
         return event
 
-    def queue_trade(self, mail: MailNetwork, trade_id: str, route=None, weight="light"):
+    def queue_trade(self, mail: MailNetwork, trade_id: str, route=None, weight="light",
+                    ship_id=None):
         """Queue terms for asynchronous, receipt-confirmed delivery."""
         t = self._trade(trade_id)
         if t["status"] == "queued":
@@ -159,13 +162,23 @@ class Federation:
         for station in route:
             mail.add_station(station)
         payload = self.trade_payload(t, weight, self.reports)
-        tier = TIERS[self.worlds[t["seller"]].ship.get("modem_tier", 0)]
+        seller = self.worlds[t["seller"]]
+        ship_id = ship_id or seller.active_ship_id
+        if ship_id not in seller.fleet:
+            raise GameError("unknown mission ship")
+        vessel = seller.fleet[ship_id]
+        if vessel.get("radio_mission") or vessel.get("destination") or vessel["condition"] <= 0:
+            raise GameError("ship is unavailable for a radio mission")
+        tier = TIERS[vessel.get("modem_tier", 0)]
         msg = mail.enqueue("trade:" + trade_id, route, payload, priority=2,
                            frames_per_tick=tier["frames_per_tick"],
                            bandwidth_hz=tier["max_bandwidth_hz"])
         t["route"] = route[:]
         t["weight"] = weight
         t["transmitted_bytes"] = len(payload)
+        t["ship_id"] = ship_id
+        t["mission_origin"] = vessel["location"]
+        vessel["radio_mission"] = trade_id
         t["status"] = "queued"
         t["custody"] = t["seller"]
         self.events.append({"trade": trade_id, "event": "queued"})
@@ -211,6 +224,9 @@ class Federation:
             t["custody"] = msg["route"][msg["hop"]]
             if msg["status"] == "acknowledged":
                 t["status"] = "delivered"
+                vessel = self.worlds[t["seller"]].fleet.get(t.get("ship_id"))
+                if vessel:
+                    vessel.pop("radio_mission", None)
                 t["receipt"] = {"trade_id": t["id"], "terms_hash": t["hash"],
                                 "receiver": t["buyer"], "accepted": True,
                                 "receipt_id": msg["receipt_id"]}
@@ -219,7 +235,15 @@ class Federation:
                 # Retain escrow for explicit reconciliation; automatic refund
                 # would risk duplicate settlement after delayed delivery.
                 t["status"] = "reconcile_required"
-                changes.append({"trade": t["id"], "status": "reconcile_required"})
+                damage = None
+                if t.get("ship_id"):
+                    seller = self.worlds[t["seller"]]
+                    if t["ship_id"] in seller.fleet:
+                        damage = seller.damage_ship(t["ship_id"],
+                                                    min(90, 25 + 5 * msg["frames_lost"]),
+                                                    t["mission_origin"])
+                changes.append({"trade": t["id"], "status": "reconcile_required",
+                                "ship_result": damage})
         self.events.extend(changes)
         return changes
 
@@ -236,7 +260,10 @@ class Federation:
         quantity, due = t["quantity"], t["quantity"] * t["unit_price"]
         # Both worlds are owned by this simulation coordinator. Applying the
         # two deltas here is atomic in memory and saved as one JSON bundle.
-        buyer.cargo[t["good"]] += quantity
+        destination_ship = buyer.fleet.get(t.get("buyer_hold", buyer.active_ship_id))
+        if destination_ship is None:
+            raise GameError("receiving ship unavailable; reconcile cargo before settlement")
+        destination_ship["cargo"][t["good"]] += quantity
         buyer.incoming_reserved -= quantity
         seller.credits += due
         t["status"] = "settled"
@@ -250,7 +277,11 @@ class Federation:
         t = self._trade(trade_id)
         if t["status"] != "reserved":
             raise GameError("only undispatched trades can be cancelled")
-        self.worlds[t["seller"]].cargo[t["good"]] += t["quantity"]
+        seller = self.worlds[t["seller"]]
+        hold = seller.fleet.get(t.get("seller_hold", seller.active_ship_id))
+        if hold is None:
+            raise GameError("originating ship unavailable; reconcile cargo before cancellation")
+        hold["cargo"][t["good"]] += t["quantity"]
         self.worlds[t["buyer"]].credits += t["quantity"] * t["unit_price"]
         self.worlds[t["buyer"]].incoming_reserved -= t["quantity"]
         t["status"] = "cancelled"

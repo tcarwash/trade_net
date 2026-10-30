@@ -50,7 +50,7 @@ class Federation:
 
     def propose(self, trade_id: str, seller: str, buyer: str, good: str,
                 quantity: int, unit_price: int, deadline: int = 100,
-                payload_bytes: int = 512):
+                payload_bytes: int = 0):
         terms = {"id": trade_id, "seller": seller, "buyer": buyer,
                  "good": good, "quantity": quantity, "unit_price": unit_price,
                  "deadline": deadline, "payload_bytes": payload_bytes}
@@ -63,7 +63,7 @@ class Federation:
                 seller not in self.worlds or buyer not in self.worlds or
                 good not in RARE or type(quantity) is not int or quantity <= 0 or
                 type(unit_price) is not int or unit_price <= 0 or
-                not 1 <= payload_bytes <= 65536 or deadline <= 0):
+                not 0 <= payload_bytes <= 65536 or deadline <= 0):
             raise GameError("invalid bilateral trade terms")
         trade = {**terms, "hash": canonical_hash(terms), "status": "offered",
                  "route": [], "hop_index": 0, "custody": None,
@@ -109,7 +109,8 @@ class Federation:
             t["hop_index"] = 0
             t["status"] = "in_transit"
         src, dst = t["route"][t["hop_index"]:t["hop_index"] + 2]
-        observation = simulate_hop(self.network, src, dst, t["payload_bytes"], float(loss))
+        payload_length = len(self.trade_payload(t))
+        observation = simulate_hop(self.network, src, dst, payload_length, float(loss))
         t["attempts"] += 1
         if observation["delivered"]:
             t["hop_index"] += 1
@@ -142,11 +143,7 @@ class Federation:
             raise GameError("invalid store-and-forward route")
         for station in route:
             mail.add_station(station)
-        # Content is deterministic and inspectable; pad to a mission's chosen
-        # multipart size without changing the hash-bound trade terms.
-        payload = json.dumps({"trade": trade_id, "terms_hash": t["hash"]},
-                             sort_keys=True, separators=(",", ":")).encode()
-        payload += b" " * max(0, t["payload_bytes"] - len(payload))
+        payload = self.trade_payload(t)
         tier = TIERS[self.worlds[t["seller"]].ship.get("modem_tier", 0)]
         msg = mail.enqueue("trade:" + trade_id, route, payload, priority=2,
                            frames_per_tick=tier["frames_per_tick"],
@@ -156,6 +153,12 @@ class Federation:
         t["custody"] = t["seller"]
         self.events.append({"trade": trade_id, "event": "queued"})
         return msg
+
+    @staticmethod
+    def trade_payload(trade: dict) -> bytes:
+        """Only actual trade metadata; never synthetic bytes for game difficulty."""
+        return json.dumps({"trade": trade["id"], "terms_hash": trade["hash"]},
+                          sort_keys=True, separators=(",", ":")).encode()
 
     def sync_mail(self, mail: MailNetwork):
         """Only an end-to-end returned ACK permits application settlement."""

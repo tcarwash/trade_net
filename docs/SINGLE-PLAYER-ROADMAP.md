@@ -72,15 +72,19 @@ dispatch contract without Data2G, and expired effects are removed.
 - [x] Saved progress, command replay protection, voluntary abandonment with
       cargo retained, and a soft quick-return bonus rather than offline failure.
 - [x] Touch-friendly mission cards, waypoint progress, and stage/finish modals.
+- [x] Nine port-specific, one-time discovery encounters with multiple outcomes,
+      actual fuel/hull/cargo costs, credit and faction rewards, and salvage.
+- [x] Discovery journal, dockside choice cards, and milestone dialogs with
+      persistent outcomes and replay-safe commands.
 - [ ] Add a typed mission state machine: offered → accepted → steps →
       completed/failed/abandoned, with reward escrow and idempotent steps.
       (The first expedition state machine is implemented; richer failure and
       escrow rules remain.)
-- [ ] Create 12–20 encounter cards with genuine choices: rescue vs deadline,
-      pirate toll vs pursuit, divert fuel vs cargo, salvage vs safety.
+- [ ] Expand to 12–20 encounter cards, including repeatable rare events and
+      event chains (the first nine port-specific choices are implemented).
 - [ ] Add chain templates: medical convoy, missing ship, rare-material hunt,
       diplomatic escort, investigation, supply rescue and urgent relay.
-- [ ] Show a compact mission journal with map waypoints and step progress.
+- [x] Show a compact mission journal with map waypoints and step progress.
 - [ ] Avoid hard failure traps: players may decline, abandon, or recover from
       deadlines, ship loss and unavailable stock.
 
@@ -89,13 +93,19 @@ same physical cargo and travel commands as the economy.
 
 ## Phase 3 — Haven headquarters
 
-- [ ] Warehouse capacity/storage fees and ship-to-base transfers.
-- [ ] Shipyard, repair bay, expedition center, intelligence office, trading
-      exchange, and radio observatory with visible upgrades.
-- [ ] Building levels consume credits and sourced materials; no passive
-      infinite-resource generation.
-- [ ] New facilities unlock contract types, repair throughput, or intel range.
-- [ ] A graphical base screen tracks development and operating costs.
+- [x] Bounded Haven export warehouse capacity (60 units initially, +40 per
+      warehouse level), with existing physical ship-to-base unloading.
+- [x] Repair bay (three levels), export warehouse (three levels) and
+      intelligence office (two levels), with a visible construction board.
+- [x] Construction consumes credits and previously imported ore/medicine from
+      the active ship. Haven-bought cargo cannot masquerade as imports.
+- [x] The repair bay discounts repair bills; intelligence level one charts
+      port names and scans corridor hazards, and level two increases encounter
+      earnings without sending radio frames.
+- [ ] Add storage fees and operating costs, shipyard, expedition center,
+      trading exchange and radio observatory upgrades.
+- [ ] Unlock additional mission types and services at higher facility levels.
+- [ ] Create a dedicated base illustration and expanded management screen.
 
 **Done when:** the player has compelling permanent goals beyond a bank balance.
 
@@ -103,9 +113,13 @@ same physical cargo and travel commands as the economy.
 
 - [ ] Discoverable derelicts, gas-cloud pockets, ancient relays, asteroid mines
       and hidden settlements between starports.
-- [ ] Scanner-driven fog of war with risk, fuel and cargo trade-offs.
-- [ ] Salvage and scientific artifacts; optional unique ship equipment.
-- [ ] Exploration log of sites found, mysteries resolved and ships lost.
+- [x] Existing fog of war and scanner route intel now connect to nine
+      persistent, optional encounter choices with real resource trade-offs.
+- [x] Cargo salvage (ore, iridium, mycelium) from risky discovery choices.
+- [x] An exploration log distinguishes open and resolved discovery sites and
+      can plot courses back to unresolved sites.
+- [ ] Independent between-port encounter locations, richer artifact stories,
+      unique equipment and a ship-loss memorial.
 
 **Done when:** scanning and visiting an uncharted location leads to a decision,
 not just a discovery payout.
@@ -195,7 +209,8 @@ intentional, legible operator action.
 - Economy playtests: 10-minute onboarding, 1-hour midgame, and multi-day
   offline return with no dead ends.
 
-The first implemented slice intentionally stays narrow: an incident changes
-prices and produces a contract, while its ◇ signal stays strictly inside the
-single-player game. We should tune how that feels before introducing the full
-mission state machine or autonomous NPC radios.
+The current solo vertical slice includes incidents, multi-stage expeditions,
+one-time dockside encounters, and three upgradable Haven facilities. Its costs
+and rewards are entirely local and persist with the saved game. Broader NPC
+factions, multi-hop freight custody and simulator radio contacts remain future
+milestones, not implied by the presence of a reported link.

@@ -17,7 +17,7 @@ from copy import deepcopy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .engine import Game, GameError, GOODS, BASE_PRICE
+from .engine import Game, GameError, GOODS, BASE_PRICE, HAVEN_FACILITIES
 from .network import Network
 from . import modems
 from .data2g import Data2GClient, Data2GError
@@ -869,6 +869,9 @@ class App:
                 "navigation": self._navigation(),
                 "ship_classes": deepcopy(list(getattr(modems, "SHIPS", ()))),
                 "story_objective": self.game.story_objective(),
+                "haven_upgrades": {key: self.game.haven_upgrade_quote(key)
+                                   for key in HAVEN_FACILITIES},
+                "haven_warehouse_capacity": self.game.haven_warehouse_capacity(),
                 # Fictional sector signals are a local gameplay projection;
                 # never pass these through the Data2G send/receive path.
                 "dispatch_signals": [{**deepcopy(event), "transport": "local_simulation",

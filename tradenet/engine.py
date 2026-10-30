@@ -73,6 +73,75 @@ EXPEDITION_TEMPLATES = (
          {"port": "Haven", "kind": "finish", "title": "File the expedition report",
           "description": "Return to Haven with the relay's findings."}]},
 )
+HAVEN_FACILITIES = {
+    "repair_bay": {"name": "Repair bay", "max_level": 3, "credits": 240,
+                   "good": "ore", "quantity": 3,
+                   "effect": "15% less hull repair cost per level"},
+    "warehouse": {"name": "Export warehouse", "max_level": 3, "credits": 200,
+                  "good": "ore", "quantity": 2,
+                  "effect": "+40 units of export storage per level"},
+    "intelligence": {"name": "Intelligence office", "max_level": 2, "credits": 330,
+                     "good": "medicine", "quantity": 2,
+                     "effect": "Level 1 charts ports and reveals route hazards; level 2 raises encounter payouts"},
+}
+ENCOUNTER_SITES = {
+    "Kepler": {"title": "The Drifting Tug", "description": "A silent cargo tug is transmitting a weak distress beacon.",
+        "choices": [
+            {"id": "tow", "label": "Tow the crew to safety", "description": "2 fuel → +145 cr, +2 diplomats",
+             "fuel": 2, "credits": 145, "faction": "diplomats", "standing": 2},
+            {"id": "log", "label": "Log its coordinates", "description": "No cost → +50 cr, +1 explorers",
+             "credits": 50, "faction": "explorers", "standing": 1}]},
+    "Vesper": {"title": "The Glasshouse Quarantine", "description": "A research habitat has quarantined its greenhouse after a mysterious blight.",
+        "choices": [
+            {"id": "treat", "label": "Supply the researchers", "description": "2 medicine → +210 cr, +3 scientists",
+             "cargo": {"medicine": 2}, "credits": 210, "faction": "scientists", "standing": 3},
+            {"id": "scan", "label": "Record the blight", "description": "No cost → +55 cr, +1 explorers",
+             "credits": 55, "faction": "explorers", "standing": 1}]},
+    "Prospect": {"title": "The Hollow Seam", "description": "A mining shaft opens onto a strange, unmapped cavern.",
+        "choices": [
+            {"id": "descend", "label": "Risk a deep salvage dive", "description": "6 hull → +100 cr, 2 ore, +2 miners",
+             "hull": 6, "credits": 100, "loot": {"ore": 2}, "faction": "miners", "standing": 2},
+            {"id": "chart", "label": "Survey from orbit", "description": "No cost → +55 cr, +1 explorers",
+             "credits": 55, "faction": "explorers", "standing": 1}]},
+    "Meridian": {"title": "The Vanishing Convoy", "description": "Merchant escorts report cargo disappearing along a profitable trade lane.",
+        "choices": [
+            {"id": "escort", "label": "Escort the next freighter", "description": "2 fuel → +175 cr, +2 security",
+             "fuel": 2, "credits": 175, "faction": "security", "standing": 2},
+            {"id": "lead", "label": "Sell the trade-lane report", "description": "No cost → +65 cr, +1 traders",
+             "credits": 65, "faction": "traders", "standing": 1}]},
+    "Cinder": {"title": "Cooling Tower Seven", "description": "A furnace station has lost coolant and its operators need immediate help.",
+        "choices": [
+            {"id": "cool", "label": "Divert emergency fuel", "description": "3 ship fuel → +190 cr, +2 miners",
+             "fuel": 3, "credits": 190, "faction": "miners", "standing": 2},
+            {"id": "warn", "label": "Broadcast a local hazard warning", "description": "No cost → +55 cr, +1 security",
+             "credits": 55, "faction": "security", "standing": 1}]},
+    "Aurora": {"title": "The Shelter Convoy", "description": "A remote clinic is sheltering more passengers than its food stores can support.",
+        "choices": [
+            {"id": "feed", "label": "Feed the evacuees", "description": "2 food → +180 cr, +3 diplomats",
+             "cargo": {"food": 2}, "credits": 180, "faction": "diplomats", "standing": 3},
+            {"id": "diagnose", "label": "Study the storm front", "description": "No cost → +60 cr, +1 scientists",
+             "credits": 60, "faction": "scientists", "standing": 1}]},
+    "Drift": {"title": "Derelict in the Haze", "description": "A wreck drifts out of the ion cloud with its cargo hold still sealed.",
+        "choices": [
+            {"id": "board", "label": "Board the derelict", "description": "7 hull → +170 cr, 1 iridium, +2 explorers",
+             "hull": 7, "credits": 170, "loot": {"iridium": 1}, "faction": "explorers", "standing": 2},
+            {"id": "record", "label": "Record its last position", "description": "No cost → +50 cr, +1 explorers",
+             "credits": 50, "faction": "explorers", "standing": 1}]},
+    "Bastion": {"title": "Refugees at the Gate", "description": "Station security cannot supply a newly arrived refugee flotilla.",
+        "choices": [
+            {"id": "rations", "label": "Donate emergency rations", "description": "3 food → +230 cr, +3 diplomats",
+             "cargo": {"food": 3}, "credits": 230, "faction": "diplomats", "standing": 3},
+            {"id": "patrol", "label": "Patrol the approach", "description": "2 fuel → +130 cr, +2 security",
+             "fuel": 2, "credits": 130, "faction": "security", "standing": 2},
+            {"id": "refer", "label": "Refer them to aid groups", "description": "No cost → +40 cr, +1 diplomats",
+             "credits": 40, "faction": "diplomats", "standing": 1}]},
+    "Eidolon": {"title": "The Memory Vault", "description": "An ancient observatory contains a sealed biological archive.",
+        "choices": [
+            {"id": "recover", "label": "Open the vault carefully", "description": "5 hull → +180 cr, 1 mycelium, +2 scientists",
+             "hull": 5, "credits": 180, "loot": {"mycelium": 1}, "faction": "scientists", "standing": 2},
+            {"id": "catalog", "label": "Document the markings", "description": "No cost → +80 cr, +1 explorers",
+             "credits": 80, "faction": "explorers", "standing": 1}]},
+}
 
 
 class GameError(ValueError):
@@ -116,6 +185,8 @@ class Game:
     sector_events: list[dict] = field(default_factory=list)
     expeditions: dict = field(default_factory=dict)
     radio_bands_seen: list[str] = field(default_factory=list)
+    haven_facilities: dict[str, int] = field(default_factory=dict)
+    encounters: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if not self.galaxies:
@@ -143,6 +214,8 @@ class Game:
         for faction in ("traders", "explorers", "diplomats", "security",
                         "miners", "scientists", "pirates"):
             self.factions.setdefault(faction, 0)
+        for facility in HAVEN_FACILITIES:
+            self.haven_facilities.setdefault(facility, 0)
         if self.active_ship_id not in self.fleet:
             self.active_ship_id = next(iter(self.fleet), "")
         if self.active_ship_id:
@@ -155,6 +228,8 @@ class Game:
             self.expeditions = {template["id"]: {**deepcopy(template), "status": "offered",
                 "stage": 0, "bonus": 0, "choice": None, "accepted_tick": None}
                 for template in EXPEDITION_TEMPLATES}
+        for port in self.visited_ports:
+            self._reveal_encounter(port)
         self.observe_markets()
 
     def _refresh_sector_events(self):
@@ -199,6 +274,91 @@ class Game:
     def active_sector_events(self) -> list[dict]:
         return [event for event in self.sector_events
                 if event["start_tick"] <= self.tick < event["end_tick"]]
+
+    def _reveal_encounter(self, port: str) -> bool:
+        if port not in ENCOUNTER_SITES or port in self.encounters:
+            return False
+        self.encounters[port] = {**deepcopy(ENCOUNTER_SITES[port]),
+                                 "port": port, "status": "open",
+                                 "discovered_tick": self.tick}
+        return True
+
+    def _resolve_encounter(self, port: str, choice: str) -> dict:
+        """A site resolves exactly once, with physical ship costs and rewards."""
+        self._available()
+        encounter = self.encounters.get(port)
+        if self.ship.get("galaxy", "home") != "home" or self.location != port:
+            raise GameError("dock at the encounter's starport")
+        if not encounter or encounter["status"] != "open":
+            raise GameError("this discovery has already been resolved")
+        option = next((c for c in encounter["choices"] if c["id"] == choice), None)
+        if option is None:
+            raise GameError("choose a valid encounter outcome")
+        fuel_cost, hull_cost = option.get("fuel", 0), option.get("hull", 0)
+        spent = option.get("cargo", {})
+        loot = option.get("loot", {})
+        if self.ship["fuel"] < fuel_cost:
+            raise GameError("insufficient fuel for that encounter choice")
+        if self.ship["condition"] - hull_cost < 10:
+            raise GameError("repair your ship before risking that salvage operation")
+        if any(self.cargo.get(good, 0) < count for good, count in spent.items()):
+            raise GameError("load the requested supplies before choosing this outcome")
+        if self.cargo_used() - sum(spent.values()) + sum(loot.values()) > self.ship["capacity"]:
+            raise GameError("free cargo space before collecting this salvage")
+        self.ship["fuel"] -= fuel_cost
+        self.ship["condition"] -= hull_cost
+        for good, count in spent.items():
+            self.cargo[good] -= count
+            self.ship.setdefault("export_cargo", {})[good] = max(
+                0, self.ship["export_cargo"].get(good, 0) - count)
+            self.ports[port]["stock"][good] += count
+        for good, count in loot.items():
+            self.cargo[good] += count
+        payout = option["credits"]
+        if self.haven_facilities.get("intelligence", 0) >= 2:
+            payout = payout * 125 // 100
+        self.credits += payout
+        self.factions[option["faction"]] += option["standing"]
+        encounter.update(status="resolved", choice=choice, resolved_tick=self.tick)
+        return {"port": port, "title": encounter["title"],
+                "outcome": option["label"], "reward": payout,
+                "fuel_spent": fuel_cost, "hull_spent": hull_cost,
+                "cargo_spent": deepcopy(spent), "salvage": deepcopy(loot),
+                "faction": option["faction"], "standing": option["standing"]}
+
+    def haven_warehouse_capacity(self) -> int:
+        return 60 + 40 * self.haven_facilities.get("warehouse", 0)
+
+    def haven_upgrade_quote(self, facility: str) -> dict:
+        template = HAVEN_FACILITIES.get(facility)
+        if not template:
+            raise GameError("unknown Haven facility")
+        level = self.haven_facilities.get(facility, 0)
+        return {"facility": facility, "name": template["name"], "level": level,
+                "max_level": template["max_level"], "effect": template["effect"],
+                "credits": template["credits"] * (level + 1),
+                "good": template["good"], "quantity": template["quantity"] * (level + 1)}
+
+    def _upgrade_haven(self, facility: str) -> dict:
+        self._available()
+        if self.ship.get("galaxy", "home") != "home" or self.location != "Haven":
+            raise GameError("return to Haven to expand headquarters")
+        quote = self.haven_upgrade_quote(facility)
+        if quote["level"] >= quote["max_level"]:
+            raise GameError("facility already at maximum level")
+        if self.credits < quote["credits"]:
+            raise GameError("insufficient credits for this headquarters upgrade")
+        good, amount = quote["good"], quote["quantity"]
+        if (self.cargo.get(good, 0) < amount or
+                self.ship.get("export_cargo", {}).get(good, 0) < amount):
+            raise GameError(f"import {amount} {good} from a different starport to build this facility")
+        self.cargo[good] -= amount
+        self.ship["export_cargo"][good] -= amount
+        self.credits -= quote["credits"]
+        self.haven_facilities[facility] = quote["level"] + 1
+        return {"facility": facility, "name": quote["name"],
+                "level": self.haven_facilities[facility], "credits_spent": quote["credits"],
+                "good": good, "quantity": amount, "effect": quote["effect"]}
 
     def _accept_expedition(self, expedition_id: str) -> dict:
         self._available()
@@ -498,6 +658,11 @@ class Game:
                     ship.pop("departed_at", None)
                     ship.pop("travel_seconds", None)
                     ship.pop("origin_port", None)
+                    if ship.get("galaxy", "home") == "home" and self._reveal_encounter(ship["location"]):
+                        encounter = self.encounters[ship["location"]]
+                        self.journal.append({"id": "site-" + ship["location"],
+                            "tick": self.tick, "action": "discover_site",
+                            "result": {"port": ship["location"], "title": encounter["title"]}})
                     if ship.get("galaxy", "home") == "home" and ship["location"] not in self.visited_ports:
                         self.visited_ports.append(ship["location"])
                         explore_bonus = 90 + min(100, self.factions["explorers"] * 10)
@@ -720,6 +885,10 @@ class Game:
                 result = self._advance_expedition(**kwargs)
             elif action == "abandon_expedition":
                 result = self._abandon_expedition(**kwargs)
+            elif action == "resolve_encounter":
+                result = self._resolve_encounter(**kwargs)
+            elif action == "upgrade_haven":
+                result = self._upgrade_haven(**kwargs)
             else:
                 raise GameError(f"unknown action: {action}")
         except (GameError, TypeError, KeyError) as exc:
@@ -777,6 +946,8 @@ class Game:
         eligible = self.ship.setdefault("export_cargo", {})
         if amount > self.cargo.get(good, 0) or amount > eligible.get(good, 0):
             raise GameError("export freight must have been purchased outside Haven")
+        if sum(self.export_warehouse.values()) + amount > self.haven_warehouse_capacity():
+            raise GameError("Haven export warehouse is full; expand its storage or reserve goods for delivery")
         self.cargo[good] -= amount
         eligible[good] -= amount
         self.export_warehouse[good] = self.export_warehouse.get(good, 0) + amount
@@ -962,7 +1133,8 @@ class Game:
 
     def _repair(self) -> dict:
         self._available()
-        cost = (100 - self.ship["condition"]) * 2
+        discount_percent = 15 * self.haven_facilities.get("repair_bay", 0)
+        cost = math.ceil((100 - self.ship["condition"]) * 2 * (100 - discount_percent) / 100)
         if self.credits < cost:
             raise GameError("insufficient credits")
         self.credits -= cost

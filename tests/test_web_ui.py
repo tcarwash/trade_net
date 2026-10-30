@@ -110,6 +110,18 @@ class BrowserUIContractTests(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertIn(marker, html)
 
+    def test_interactive_exploration_and_haven_construction(self):
+        html = self.browser_html()
+        for marker in ("function renderEncounter(){", "function renderDiscoveryJournal(){",
+                       "function renderHaven(){", "encounterPanel", "discoveryJournal",
+                       "havenPanel", "encounter-choices", "haven-grid",
+                       "command('resolve_encounter'", "command('upgrade_haven'",
+                       "state.haven_upgrades", "state.haven_warehouse_capacity",
+                       "entry.action==='discover_site'", "entry.action==='resolve_encounter'",
+                       "entry.action==='upgrade_haven'", "renderEncounter();renderDiscoveryJournal();renderHaven()"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, html)
+
 
 if __name__ == "__main__":
     unittest.main()

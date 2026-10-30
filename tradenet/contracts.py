@@ -83,8 +83,10 @@ def dispatch(game: Game, net: Network, contract_id: str, route: list[str] | None
     manifest = manifest_payload(c)
     result = simulate_hop(net, src, dst, len(manifest), loss)
     c["attempts"] += 1
-    # Simulation airtime advances the economy and may exhaust a deadline.
-    game._wait(ticks=min(100, max(1, math.ceil(result["elapsed_seconds"] / 60))))
+    # Legacy turn-based simulation advances ticks for airtime. In the browser
+    # real-time mode, only UTC wall-clock boundaries can advance the economy.
+    if game.clock_epoch is None:
+        game._wait(ticks=min(100, max(1, math.ceil(result["elapsed_seconds"] / 60))))
     if result["delivered"]:
         c["hop_index"] += 1
         c["custody"] = dst

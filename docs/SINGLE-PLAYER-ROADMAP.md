@@ -151,8 +151,17 @@ not just a discovery payout.
 - [x] Relationship expedition outcomes schedule a one-time follow-up freight
       opportunity after 12 economy ticks. Returning from a long absence
       activates it with a fresh deadline instead of silently losing it.
-- [ ] NPCs can change the outcome of sector incidents and react through
-      dialogue, later encounters or faction-controlled market access.
+- [x] A trust-2 captain unlocks a limited private commodity lot at their
+      current port, drawn from the actual market and renewed after 24 ticks.
+      The lot is credit-paid, stock-limited and does not mint cargo.
+- [x] Captains with trust-2 can be asked once per active sector dispatch for
+      emergency help. Spending one relationship point increases the contract
+      reward and grants four extra ticks. Hostile captains affect future
+      commodity-matched dispatches with hazard premiums and tight deadlines.
+- [x] Follow-up freight resolves commercially for the entire payout or as a
+      reconciliation for half payment, +3 relationship and +2 faction standing.
+- [ ] More reactive captain dialogue, persistent choices in later encounters,
+      faction-controlled special equipment and trade embargoes.
 - [ ] More rescuees and branching quest chains with special equipment and
       authored endings.
 

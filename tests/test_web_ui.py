@@ -143,6 +143,16 @@ class BrowserUIContractTests(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertIn(marker, html)
 
+    def test_captain_consequences_are_visible_and_actionable(self):
+        html = self.browser_html()
+        for marker in ("state.captain_deal_quotes", "◇ PRIVATE LOT",
+                       "command('buy_captain_deal'", "command('request_sector_aid'",
+                       "command('deliver_local',{job_id:job.id,resolution:'reconcile'})",
+                       "entry.action==='request_sector_aid'", "entry.action==='buy_captain_deal'",
+                       "signal.hostile_captain", "job.aid_by", "Build trust · +3 relation"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, html)
+
 
 if __name__ == "__main__":
     unittest.main()

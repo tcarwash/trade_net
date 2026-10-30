@@ -275,6 +275,7 @@ class Game:
     npc_shipments: list[dict] = field(default_factory=list)
     local_encounters: dict = field(default_factory=dict)
     faction_followups: dict = field(default_factory=dict)
+    captain_deals: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if not self.galaxies:
@@ -343,12 +344,19 @@ class Game:
         event_id = f"dispatch-{cycle:05d}"
         deadline = (cycle + 1) * INCIDENT_INTERVAL - 1
         reward = BASE_PRICE[good] * quantity * 3
+        hostile = next((captain for captain in self.npc_captains.values()
+                        if captain["good"] == good and captain["relationship"] <= -2), None)
+        if hostile:
+            # A rival controls the supply lane. The deadline is tighter, but
+            # the posted reward includes a real disruption premium.
+            reward = reward * 125 // 100
+            deadline = max(self.tick + 2, deadline - 1)
         event = {"id": event_id, "cycle": cycle, "title": title,
                  "port": port, "origin": origin, "good": good,
                  "description": description, "start_tick": cycle * INCIDENT_INTERVAL,
                  "end_tick": deadline + 1, "quantity": quantity,
                  "reward": reward, "job_id": event_id,
-                 "source": "simulated"}
+                 "source": "simulated", "hostile_captain": hostile["id"] if hostile else None}
         self.sector_events.append(event)
         self.sector_events = self.sector_events[-12:]
         # Local dispatch contracts use the ordinary cargo, deadline and payout
@@ -468,6 +476,81 @@ class Game:
                         "status": "open"})
             captain["last_cycle"] = target_cycle
         self.npc_shipments = self.npc_shipments[-24:]
+
+    def captain_deal_quote(self, npc_id: str) -> dict:
+        """A relationship-gated lot drawn from existing port stock."""
+        captain = self.npc_captains.get(npc_id)
+        if not captain:
+            raise GameError("unknown captain")
+        port, good = captain["location"], captain["good"]
+        at_home = self.ship.get("galaxy", "home") == "home"
+        stock = self.galaxies["home"]["ports"][port]["stock"][good]
+        normal = self.price(port, good, "buy") if at_home else 0
+        # A private lot must never be immediately profitable to sell back at
+        # the same port. Price the future sale against the stock AFTER all
+        # three reserved units are removed, not the pre-purchase market.
+        floor = (self.price(port, good, "sell", stock_override=max(0, stock - 3)) + 1
+                 if at_home else 0)
+        unit = max(floor, normal * 85 // 100)
+        next_tick = self.captain_deals.get(npc_id, -24) + 24
+        return {"npc_id": npc_id, "captain": captain["name"], "port": port,
+                "good": good, "unit_price": unit, "normal_price": normal,
+                "max_quantity": min(3, stock), "next_tick": next_tick,
+                "available": at_home and captain["relationship"] >= 2
+                and self.tick >= next_tick and stock > 0}
+
+    def _buy_captain_deal(self, npc_id: str, amount: int) -> dict:
+        self._available()
+        quote = self.captain_deal_quote(npc_id)
+        if self.ship.get("galaxy", "home") != "home" or self.location != quote["port"]:
+            raise GameError("meet the captain at their current starport")
+        if not quote["available"]:
+            raise GameError("private lot unavailable; improve your relationship or wait for restock")
+        if type(amount) is not int or not 1 <= amount <= quote["max_quantity"]:
+            raise GameError("choose one to three units from the available lot")
+        total = quote["unit_price"] * amount
+        if self.credits < total:
+            raise GameError("insufficient credits")
+        if self.cargo_used() + self.incoming_reserved + amount > self.ship["capacity"]:
+            raise GameError("cargo hold full")
+        good = quote["good"]
+        self.ports[self.location]["stock"][good] -= amount
+        self.cargo[good] += amount
+        self.credits -= total
+        self.ship.setdefault("export_cargo", {})[good] = (
+            self.ship["export_cargo"].get(good, 0) + (amount if self.location != "Haven" else 0))
+        self.captain_deals[npc_id] = self.tick
+        return {"captain": quote["captain"], "npc_id": npc_id,
+                "good": good, "amount": amount, "unit_price": quote["unit_price"],
+                "total": total, "next_tick": self.tick + 24}
+
+    def _request_sector_aid(self, event_id: str, npc_id: str) -> dict:
+        """Spend one point of goodwill to improve an active local dispatch."""
+        self._available()
+        if self.ship.get("galaxy", "home") != "home":
+            raise GameError("sector aid is only available in your home galaxy")
+        event = next((item for item in self.active_sector_events()
+                      if item["id"] == event_id), None)
+        job = self.local_jobs.get(event_id)
+        captain = self.npc_captains.get(npc_id)
+        if not event or not job or job["status"] != "open":
+            raise GameError("this sector dispatch is no longer active")
+        if event.get("aid_by"):
+            raise GameError("this dispatch already has captain support")
+        if not captain or captain["relationship"] < 2:
+            raise GameError("earn the captain's trust before requesting aid")
+        if self.location != captain["location"]:
+            raise GameError("meet the captain at their current starport")
+        captain["relationship"] -= 1
+        bonus = max(1, job["reward"] // 5)
+        job["reward"] += bonus
+        job["deadline"] += 4
+        job["aid_by"] = captain["id"]
+        event.update(aid_by=captain["id"], reward=job["reward"],
+                     end_tick=max(event["end_tick"], job["deadline"] + 1))
+        return {"event_id": event_id, "captain": captain["name"],
+                "bonus": bonus, "reward": job["reward"],
+                "deadline": job["deadline"], "relationship": captain["relationship"]}
 
     def _reveal_encounter(self, port: str) -> bool:
         if port not in ENCOUNTER_SITES or port in self.encounters:
@@ -852,7 +935,7 @@ class Game:
                 "reward": reward, "status": "open", "deadline": self.tick + 48}
             open_jobs += 1
 
-    def _deliver_local(self, job_id: str) -> dict:
+    def _deliver_local(self, job_id: str, resolution: str = "commercial") -> dict:
         self._available()
         job = self.local_jobs.get(job_id)
         if not job or job["status"] != "open":
@@ -863,25 +946,33 @@ class Game:
             raise GameError(f"deliver at {job['destination']}")
         if self.cargo[job["good"]] < job["quantity"]:
             raise GameError("load the requested freight before delivery")
+        if resolution not in ("commercial", "reconcile") or (
+                resolution == "reconcile" and job.get("kind") != "followup"):
+            raise GameError("choose a valid faction follow-up resolution")
         self.cargo[job["good"]] -= job["quantity"]
         eligible = self.ship.setdefault("export_cargo", {})
         eligible[job["good"]] = max(0, eligible.get(job["good"], 0) - job["quantity"])
         self.ports[self.location]["stock"][job["good"]] += job["quantity"]
-        self.credits += job["reward"]
+        payout = job["reward"] if resolution == "commercial" else job["reward"] // 2
+        self.credits += payout
         self.factions["traders"] += 1
+        if resolution == "reconcile":
+            self.factions[self.npc_captains[job["npc_id"]]["faction"]] += 2
         job["status"] = "delivered"
         job["completed_tick"] = self.tick
+        job["resolution"] = resolution
         captain = self.npc_captains.get(job.get("npc_id"))
         if captain and job.get("kind") in ("rival", "followup"):
-            captain["relationship"] = max(-5, min(5, captain["relationship"] + 1))
+            captain["relationship"] = max(-5, min(5, captain["relationship"] +
+                                                   (3 if resolution == "reconcile" else 1)))
         if job.get("kind") == "followup":
             for followup in self.faction_followups.values():
                 if followup.get("job_id") == job_id:
-                    followup["status"] = "completed"
+                    followup.update(status="completed", resolution=resolution)
         self._replenish_local_jobs()
-        return {"job_id": job_id, "reward": job["reward"], "credits": self.credits,
+        return {"job_id": job_id, "reward": payout, "credits": self.credits,
                 "captain": captain["name"] if captain else None,
-                "kind": job.get("kind")}
+                "kind": job.get("kind"), "resolution": resolution}
 
     def _bind_ship(self):
         self.ship = self.fleet[self.active_ship_id]
@@ -1032,11 +1123,12 @@ class Game:
                          "max_fuel": 40, "condition": 100, "destination": None,
                          "arrival_tick": None, "modem_tier": 0, "speed": 1})
 
-    def price(self, port: str, good: str, action: str) -> int:
+    def price(self, port: str, good: str, action: str,
+              *, stock_override: int | None = None) -> int:
         self._check_port_good(port, good)
         if action not in ("buy", "sell"):
             raise GameError("action must be buy or sell")
-        stock = self.ports[port]["stock"][good]
+        stock = self.ports[port]["stock"][good] if stock_override is None else stock_override
         # Scarcity raises prices, supply depresses them. Narrow spread blocks
         # buying and immediately reselling for a profit in the same port.
         pressure = max(50, min(200, 150 - stock))
@@ -1121,6 +1213,10 @@ class Game:
                 result = self._reclaim_contract(**kwargs)
             elif action == "deliver_local":
                 result = self._deliver_local(**kwargs)
+            elif action == "buy_captain_deal":
+                result = self._buy_captain_deal(**kwargs)
+            elif action == "request_sector_aid":
+                result = self._request_sector_aid(**kwargs)
             elif action == "unload_export":
                 result = self._unload_export(**kwargs)
             elif action == "accept_vip":

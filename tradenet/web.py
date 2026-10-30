@@ -872,6 +872,8 @@ class App:
                 "haven_upgrades": {key: self.game.haven_upgrade_quote(key)
                                    for key in HAVEN_FACILITIES},
                 "haven_warehouse_capacity": self.game.haven_warehouse_capacity(),
+                "captain_deal_quotes": {key: self.game.captain_deal_quote(key)
+                                        for key in self.game.npc_captains},
                 # Fictional sector signals are a local gameplay projection;
                 # never pass these through the Data2G send/receive path.
                 "dispatch_signals": [{**deepcopy(event), "transport": "local_simulation",

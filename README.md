@@ -17,6 +17,16 @@ the active link, advancing only as payload frames are successfully received
 protocol simulators and diagnostics are tucked behind **Debug**. The preview
 still simulates radio; it does not key a transmitter.
 
+The browser playability pass places **Map + Market** first, followed by Fleet,
+Comms, and Contracts. First-run guidance gives the basic trading loop; clicking
+a planet chooses the destination, and a route quote shows fuel, travel ticks,
+and real-time minutes. Market rows can be selected directly, and the quote
+shows cargo, cost, and best known sale price. Contract cards show missing
+cargo and link to the relevant market selection. Inputs retain their values
+when the 30-second state refresh runs; unavailable actions are disabled, with
+human-readable success/error messages above the game. Debug-only mechanics
+remain available with the toggle.
+
 ### Owned fleet and mission risk
 
 Ships are individually purchased: Scout (350 credits / 500 Hz), Courier

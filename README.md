@@ -17,6 +17,24 @@ the active link, advancing only as payload frames are successfully received
 protocol simulators and diagnostics are tucked behind **Debug**. The preview
 still simulates radio; it does not key a transmitter.
 
+### Owned fleet and mission risk
+
+Ships are individually purchased: Scout (350 credits / 500 Hz), Courier
+(900 / 1200 Hz), and Express (1800 / 2400 Hz). Each retains its own location,
+cargo, fuel, condition, and upgrades. Choose the active ship in Fleet dispatch;
+radio exchange missions also select a particular available ship, whose modem
+tier controls the simulated frame budget and supported bandwidth. The older
+"Buy faster ship" control upgrades an existing selected vessel.
+
+A queued radio shipment assigns the chosen vessel to that mission until an
+end-to-end ACK arrives. If the *outbound payload expires before delivery*, the
+ship is damaged and returned to its departure port; escrow stays pending
+reconciliation to avoid double-spending after a possible delayed receipt.
+Individual frame loss is retried and does not itself cause damage. In optional,
+irreversible hard mode, ships reaching zero condition are destroyed; hard mode
+also raises NPC sell proceeds by approximately 15%. Normal mode permits repair
+of ships at zero condition. Ship loss never silently mints replacement cargo.
+
 - **Your own galaxy:** build starports, operate ships, and trade with simulated ports without waiting for another operator.
 - **Discover people by trading:** a verified on-air interaction creates or updates a real-station node in your galaxy.
 - **Learn their neighbors:** compact, timestamped next-hop advertisements reveal a *reported* network, distinct from links you directly measured.

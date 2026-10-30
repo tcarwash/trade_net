@@ -29,7 +29,9 @@
 - [ ] Independently persisted peer-to-peer outbox/inbox, signed ACKs, remote acceptance and multi-authority settlement.
 - [x] Seeded simulated fragment loss/retry and per-hop custody; delay is modeled through airtime ticks.
 - [x] Local NPC contract escrow, cancellation, idempotent destination settlement.
-- [x] AI-generated NPC contract offers with larger rare-resource payloads.
+- [x] AI-generated NPC freight contracts with compact, meaningful manifests.
+- [x] Three information-weight classes with sourced second-hop ore/market data and no artificial padding.
+- [x] Fixed five-minute UTC economic epochs with deterministic offline catch-up in the browser.
 - [ ] Stateful autonomous AI that uses the same command pathway as players.
 
 **Done when:** Both players can make a bilateral trade despite intermittent communication and repeated messages, without duplicate resources or inconsistent settlement.

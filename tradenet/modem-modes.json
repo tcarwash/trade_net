@@ -1,0 +1,410 @@
+{
+  "source": "Data2G MODES",
+  "host": "127.0.0.1",
+  "command_port": 8300,
+  "kiss_port": 8100,
+  "observed_utc": "2026-10-30T01:51:19.255709+00:00",
+  "simulated": false,
+  "modes": [
+    {
+      "mode_id": "n4-16qam-r1/3",
+      "bandwidth_hz": 200,
+      "bytes_per_codeword": 76,
+      "max_codewords": 12,
+      "seconds_min": 3.98,
+      "seconds_max": 41.99
+    },
+    {
+      "mode_id": "n4-ack-2f",
+      "bandwidth_hz": 200,
+      "bytes_per_codeword": 4,
+      "max_codewords": 32,
+      "seconds_min": 0.81,
+      "seconds_max": 9.74
+    },
+    {
+      "mode_id": "n4-ack-8f",
+      "bandwidth_hz": 200,
+      "bytes_per_codeword": 4,
+      "max_codewords": 13,
+      "seconds_min": 1.67,
+      "seconds_max": 15.5
+    },
+    {
+      "mode_id": "n4-qpsk-r1/2",
+      "bandwidth_hz": 200,
+      "bytes_per_codeword": 58,
+      "max_codewords": 13,
+      "seconds_min": 3.98,
+      "seconds_max": 45.45
+    },
+    {
+      "mode_id": "n4-qpsk-r1/3",
+      "bandwidth_hz": 200,
+      "bytes_per_codeword": 38,
+      "max_codewords": 15,
+      "seconds_min": 3.98,
+      "seconds_max": 52.36
+    },
+    {
+      "mode_id": "n4-qpsk-r1/5",
+      "bandwidth_hz": 200,
+      "bytes_per_codeword": 22,
+      "max_codewords": 20,
+      "seconds_min": 3.98,
+      "seconds_max": 69.64
+    },
+    {
+      "mode_id": "n4-qpsk-r2/3",
+      "bandwidth_hz": 200,
+      "bytes_per_codeword": 76,
+      "max_codewords": 12,
+      "seconds_min": 3.98,
+      "seconds_max": 41.99
+    },
+    {
+      "mode_id": "fsk16r25-r1/2",
+      "bandwidth_hz": 500,
+      "bytes_per_codeword": 58,
+      "max_codewords": 9,
+      "seconds_min": 4.98,
+      "seconds_max": 81.78
+    },
+    {
+      "mode_id": "fsk16r25-r1/3",
+      "bandwidth_hz": 500,
+      "bytes_per_codeword": 38,
+      "max_codewords": 9,
+      "seconds_min": 4.98,
+      "seconds_max": 81.78
+    },
+    {
+      "mode_id": "fsk8r50-r1/2",
+      "bandwidth_hz": 500,
+      "bytes_per_codeword": 58,
+      "max_codewords": 9,
+      "seconds_min": 3.62,
+      "seconds_max": 54.82
+    },
+    {
+      "mode_id": "fsk8r50-r1/3",
+      "bandwidth_hz": 500,
+      "bytes_per_codeword": 38,
+      "max_codewords": 9,
+      "seconds_min": 3.62,
+      "seconds_max": 54.82
+    },
+    {
+      "mode_id": "n10-16qam-r1/2",
+      "bandwidth_hz": 500,
+      "bytes_per_codeword": 121,
+      "max_codewords": 11,
+      "seconds_min": 1.96,
+      "seconds_max": 16.36
+    },
+    {
+      "mode_id": "n10-16qam-r1/3",
+      "bandwidth_hz": 500,
+      "bytes_per_codeword": 79,
+      "max_codewords": 12,
+      "seconds_min": 1.96,
+      "seconds_max": 17.8
+    },
+    {
+      "mode_id": "n10-16qam-r2/3",
+      "bandwidth_hz": 500,
+      "bytes_per_codeword": 163,
+      "max_codewords": 10,
+      "seconds_min": 1.96,
+      "seconds_max": 14.92
+    },
+    {
+      "mode_id": "n10-16qam-r3/4",
+      "bandwidth_hz": 500,
+      "bytes_per_codeword": 184,
+      "max_codewords": 10,
+      "seconds_min": 1.96,
+      "seconds_max": 14.92
+    },
+    {
+      "mode_id": "n10-256l-r3/4",
+      "bandwidth_hz": 500,
+      "bytes_per_codeword": 372,
+      "max_codewords": 10,
+      "seconds_min": 1.96,
+      "seconds_max": 14.92
+    },
+    {
+      "mode_id": "n10-64l-r3/4",
+      "bandwidth_hz": 500,
+      "bytes_per_codeword": 278,
+      "max_codewords": 10,
+      "seconds_min": 1.96,
+      "seconds_max": 14.92
+    },
+    {
+      "mode_id": "n10-ack-4f",
+      "bandwidth_hz": 500,
+      "bytes_per_codeword": 4,
+      "max_codewords": 26,
+      "seconds_min": 1.1,
+      "seconds_max": 15.5
+    },
+    {
+      "mode_id": "n10-qpsk-r1/2",
+      "bandwidth_hz": 500,
+      "bytes_per_codeword": 60,
+      "max_codewords": 13,
+      "seconds_min": 1.96,
+      "seconds_max": 19.24
+    },
+    {
+      "mode_id": "n10-qpsk-r1/3",
+      "bandwidth_hz": 500,
+      "bytes_per_codeword": 40,
+      "max_codewords": 15,
+      "seconds_min": 1.96,
+      "seconds_max": 22.12
+    },
+    {
+      "mode_id": "n10-qpsk-r1/5",
+      "bandwidth_hz": 500,
+      "bytes_per_codeword": 23,
+      "max_codewords": 20,
+      "seconds_min": 1.96,
+      "seconds_max": 29.32
+    },
+    {
+      "mode_id": "n10-qpsk-r3/4",
+      "bandwidth_hz": 500,
+      "bytes_per_codeword": 90,
+      "max_codewords": 11,
+      "seconds_min": 1.96,
+      "seconds_max": 16.36
+    },
+    {
+      "mode_id": "16qam-r1/2",
+      "bandwidth_hz": 1200,
+      "bytes_per_codeword": 236,
+      "max_codewords": 13,
+      "seconds_min": 1.62,
+      "seconds_max": 15.45
+    },
+    {
+      "mode_id": "16qam-r1/3",
+      "bandwidth_hz": 1200,
+      "bytes_per_codeword": 76,
+      "max_codewords": 27,
+      "seconds_min": 1.05,
+      "seconds_max": 16.02
+    },
+    {
+      "mode_id": "ack-1f",
+      "bandwidth_hz": 1200,
+      "bytes_per_codeword": 4,
+      "max_codewords": 64,
+      "seconds_min": 0.62,
+      "seconds_max": 9.69
+    },
+    {
+      "mode_id": "ack-4f",
+      "bandwidth_hz": 1200,
+      "bytes_per_codeword": 4,
+      "max_codewords": 27,
+      "seconds_min": 1.05,
+      "seconds_max": 16.02
+    },
+    {
+      "mode_id": "polar-k192-f8",
+      "bandwidth_hz": 1200,
+      "bytes_per_codeword": 22,
+      "max_codewords": 20,
+      "seconds_min": 1.62,
+      "seconds_max": 23.51
+    },
+    {
+      "mode_id": "polar-k96-f4",
+      "bandwidth_hz": 1200,
+      "bytes_per_codeword": 10,
+      "max_codewords": 34,
+      "seconds_min": 1.05,
+      "seconds_max": 20.06
+    },
+    {
+      "mode_id": "polar-k96-f8",
+      "bandwidth_hz": 1200,
+      "bytes_per_codeword": 10,
+      "max_codewords": 34,
+      "seconds_min": 1.62,
+      "seconds_max": 39.64
+    },
+    {
+      "mode_id": "qpsk-r1/2",
+      "bandwidth_hz": 1200,
+      "bytes_per_codeword": 116,
+      "max_codewords": 13,
+      "seconds_min": 1.62,
+      "seconds_max": 15.45
+    },
+    {
+      "mode_id": "qpsk-r1/3",
+      "bandwidth_hz": 1200,
+      "bytes_per_codeword": 76,
+      "max_codewords": 13,
+      "seconds_min": 1.62,
+      "seconds_max": 15.45
+    },
+    {
+      "mode_id": "qpsk-r1/5",
+      "bandwidth_hz": 1200,
+      "bytes_per_codeword": 46,
+      "max_codewords": 14,
+      "seconds_min": 1.62,
+      "seconds_max": 16.6
+    },
+    {
+      "mode_id": "qpsk-r3/4",
+      "bandwidth_hz": 1200,
+      "bytes_per_codeword": 176,
+      "max_codewords": 13,
+      "seconds_min": 1.62,
+      "seconds_max": 15.45
+    },
+    {
+      "mode_id": "fsk32r62-r1/2",
+      "bandwidth_hz": 2300,
+      "bytes_per_codeword": 58,
+      "max_codewords": 9,
+      "seconds_min": 2.42,
+      "seconds_max": 27.0
+    },
+    {
+      "mode_id": "fsk32r62-r1/3",
+      "bandwidth_hz": 2300,
+      "bytes_per_codeword": 38,
+      "max_codewords": 9,
+      "seconds_min": 2.42,
+      "seconds_max": 27.0
+    },
+    {
+      "mode_id": "w48-16qam-r1/2",
+      "bandwidth_hz": 2400,
+      "bytes_per_codeword": 236,
+      "max_codewords": 27,
+      "seconds_min": 1.05,
+      "seconds_max": 16.02
+    },
+    {
+      "mode_id": "w48-16qam-r1/3",
+      "bandwidth_hz": 2400,
+      "bytes_per_codeword": 156,
+      "max_codewords": 27,
+      "seconds_min": 1.05,
+      "seconds_max": 16.02
+    },
+    {
+      "mode_id": "w48-16qam-r2/3",
+      "bandwidth_hz": 2400,
+      "bytes_per_codeword": 316,
+      "max_codewords": 27,
+      "seconds_min": 1.05,
+      "seconds_max": 16.02
+    },
+    {
+      "mode_id": "w48-16qam-r3/4",
+      "bandwidth_hz": 2400,
+      "bytes_per_codeword": 356,
+      "max_codewords": 27,
+      "seconds_min": 1.05,
+      "seconds_max": 16.02
+    },
+    {
+      "mode_id": "w48-16qam-r5/6",
+      "bandwidth_hz": 2400,
+      "bytes_per_codeword": 396,
+      "max_codewords": 27,
+      "seconds_min": 1.05,
+      "seconds_max": 16.02
+    },
+    {
+      "mode_id": "w48-256l-r5/8",
+      "bandwidth_hz": 2400,
+      "bytes_per_codeword": 296,
+      "max_codewords": 54,
+      "seconds_min": 0.76,
+      "seconds_max": 16.02
+    },
+    {
+      "mode_id": "w48-64l-r1/2",
+      "bandwidth_hz": 2400,
+      "bytes_per_codeword": 176,
+      "max_codewords": 54,
+      "seconds_min": 0.76,
+      "seconds_max": 16.02
+    },
+    {
+      "mode_id": "w48-64l-r2/3",
+      "bandwidth_hz": 2400,
+      "bytes_per_codeword": 236,
+      "max_codewords": 54,
+      "seconds_min": 0.76,
+      "seconds_max": 16.02
+    },
+    {
+      "mode_id": "w48-64l-r3/4",
+      "bandwidth_hz": 2400,
+      "bytes_per_codeword": 266,
+      "max_codewords": 54,
+      "seconds_min": 0.76,
+      "seconds_max": 16.02
+    },
+    {
+      "mode_id": "w48-64l-r7/12",
+      "bandwidth_hz": 2400,
+      "bytes_per_codeword": 206,
+      "max_codewords": 54,
+      "seconds_min": 0.76,
+      "seconds_max": 16.02
+    },
+    {
+      "mode_id": "w48-qpsk-r1/2",
+      "bandwidth_hz": 2400,
+      "bytes_per_codeword": 116,
+      "max_codewords": 27,
+      "seconds_min": 1.05,
+      "seconds_max": 16.02
+    },
+    {
+      "mode_id": "w48-qpsk-r1/3",
+      "bandwidth_hz": 2400,
+      "bytes_per_codeword": 76,
+      "max_codewords": 27,
+      "seconds_min": 1.05,
+      "seconds_max": 16.02
+    },
+    {
+      "mode_id": "w48-qpsk-r1/5",
+      "bandwidth_hz": 2400,
+      "bytes_per_codeword": 46,
+      "max_codewords": 27,
+      "seconds_min": 1.05,
+      "seconds_max": 16.02
+    },
+    {
+      "mode_id": "w48-qpsk-r2/3",
+      "bandwidth_hz": 2400,
+      "bytes_per_codeword": 156,
+      "max_codewords": 27,
+      "seconds_min": 1.05,
+      "seconds_max": 16.02
+    },
+    {
+      "mode_id": "w48-qpsk-r3/4",
+      "bandwidth_hz": 2400,
+      "bytes_per_codeword": 176,
+      "max_codewords": 27,
+      "seconds_min": 1.05,
+      "seconds_max": 16.02
+    }
+  ]
+}

@@ -103,11 +103,24 @@ class Data2GClient:
             raise Data2GError("invalid command connection")
         self.command_socket.sendall((value + "\r").encode("ascii"))
         result = []
-        for _ in range(512):
-            line = self.reader.readline()
-            if not line:
+        line = bytearray()
+        response_bytes = 0
+        while len(result) < 512:
+            byte = self.reader.read(1)
+            if not byte:
                 raise Data2GError("Data2G command port closed")
+            response_bytes += 1
+            if response_bytes > 65536:
+                raise Data2GError("Data2G command response exceeded limit")
+            if byte not in (b"\r", b"\n"):
+                line.extend(byte)
+                if len(line) > 4096:
+                    raise Data2GError("Data2G command line exceeded limit")
+                continue
             item = line.decode("ascii", errors="replace").strip()
+            line.clear()
+            if not item:  # Includes the LF half of CRLF, even across commands.
+                continue
             if item == "OK":
                 return result
             if item == "WRONG":

@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="576" height="112" viewBox="0 0 576 112" fill="none">
+  <title>Trade Net · independent shipwright collection</title>
+  <desc>Six original nose-up vector hulls. External SVG use targets: wayfarer, scout, courier, express, wisp, hauler. Each symbol is 96 by 112 with transparent safe margins. Wisp is the 200 Hz ultra-narrow scout; Hauler is the 2300 Hz FSK freighter.</desc>
+  <defs>
+    <linearGradient id="tn-ship-wayfarer-hull" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#c1e8ee"/><stop offset=".38" stop-color="#638f9d"/><stop offset="1" stop-color="#203b4b"/>
+    </linearGradient>
+    <linearGradient id="tn-ship-scout-hull" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#edf1f3"/><stop offset=".4" stop-color="#8595a7"/><stop offset="1" stop-color="#283649"/>
+    </linearGradient>
+    <linearGradient id="tn-ship-courier-hull" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#f5db9e"/><stop offset=".45" stop-color="#a98246"/><stop offset="1" stop-color="#493c30"/>
+    </linearGradient>
+    <linearGradient id="tn-ship-express-hull" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#f0f3e9"/><stop offset=".45" stop-color="#b1bfc0"/><stop offset="1" stop-color="#46596c"/>
+    </linearGradient>
+    <linearGradient id="tn-ship-cyan-glass" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#85f4ee"/><stop offset=".38" stop-color="#208a9d"/><stop offset="1" stop-color="#102c41"/>
+    </linearGradient>
+    <linearGradient id="tn-ship-amber-glass" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#ffe8a2"/><stop offset=".4" stop-color="#bf873f"/><stop offset="1" stop-color="#342b2b"/>
+    </linearGradient>
+    <linearGradient id="tn-ship-cyan-drive" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#d8ffff" stop-opacity=".9"/><stop offset=".35" stop-color="#66e3ee" stop-opacity=".65"/><stop offset="1" stop-color="#3bc4e6" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="tn-ship-amber-drive" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#fff0c5" stop-opacity=".95"/><stop offset=".3" stop-color="#edb75d" stop-opacity=".7"/><stop offset="1" stop-color="#d79736" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <symbol id="wayfarer" viewBox="0 0 96 112">
+    <title>Wayfarer · cyan utility skiff</title>
+    <path data-part="exhaust" d="M36 86 L45 86 Q45 98 40 105 Q35 98 36 86 Z M51 86 L60 86 Q61 98 56 105 Q51 98 51 86 Z" fill="url(#tn-ship-cyan-drive)"/>
+    <path d="M27 65 L25 85 L33 91 L40 85 L40 67 Z M56 67 L56 85 L63 91 L71 85 L69 65 Z" fill="#142733" stroke="#436170"/>
+    <path data-part="hull" d="M48 12 L59 28 L63 47 L76 61 L77 79 L63 84 L56 91 L40 91 L33 84 L19 79 L20 61 L33 47 L37 28 Z" fill="url(#tn-ship-wayfarer-hull)" stroke="#8bb7c2"/>
+    <path d="M48 14 L48 35 L37 45 L39 28 Z" fill="#d5f2ee" fill-opacity=".55"/>
+    <path d="M48 14 L57 29 L60 44 L49 36 Z" fill="#365c6b"/>
+    <path d="M32 53 L24 64 L23 75 L35 79 L38 60 Z M64 53 L72 64 L73 75 L61 79 L58 60 Z" fill="#274654" stroke="#6e9caa"/>
+    <path data-part="canopy" d="M48 31 Q56 40 57 51 L53 59 L43 59 L39 51 Q40 40 48 31 Z" fill="url(#tn-ship-cyan-glass)" stroke="#183b4b"/>
+    <path d="M44 39 L42 49 L44 52" stroke="#bbfffa" stroke-opacity=".75"/>
+    <path d="M41 65 L55 65 L58 79 L53 85 L43 85 L38 79 Z" fill="#233e4c" stroke="#779fab"/>
+    <path d="M44 68 L52 68 M43 72 L53 72 M42 76 L54 76" stroke="#0d2532" stroke-width="2"/>
+    <path d="M27 65 L29 60 M67 60 L69 65" stroke="#8df3ec" stroke-width="2"/>
+    <path d="M36 86 L44 86 M52 86 L60 86" stroke="#d0fff9" stroke-width="2"/>
+    <path d="M32 81 L36 82 M60 82 L64 81" stroke="#d8ae66"/>
+  </symbol>
+  <symbol id="scout" viewBox="0 0 96 112">
+    <title>Scout · silver long-range interceptor</title>
+    <path data-part="exhaust" d="M43 87 L53 87 Q56 98 48 106 Q40 98 43 87 Z" fill="url(#tn-ship-cyan-drive)"/>
+    <path d="M21 43 L18 33 L20 24 L22 34 Z M75 43 L74 34 L76 24 L78 33 Z" fill="#8c9aab"/>
+    <path data-part="hull" d="M48 7 L54 31 L60 48 L76 38 L82 69 L67 79 L57 73 L55 88 L41 88 L39 73 L29 79 L14 69 L20 38 L36 48 L42 31 Z" fill="url(#tn-ship-scout-hull)" stroke="#9aabb9"/>
+    <path d="M48 9 L48 35 L42 43 L44 29 Z" fill="#eff5f3"/>
+    <path d="M48 9 L53 32 L56 43 L49 35 Z" fill="#3d4d61"/>
+    <path d="M22 43 L32 53 L35 64 L28 72 L19 67 Z M74 43 L77 67 L68 72 L61 64 L64 53 Z" fill="#253347" stroke="#667a90"/>
+    <path d="M22 47 L21 61 L28 64 M74 47 L75 61 L68 64" stroke="#c5d4dd"/>
+    <path data-part="canopy" d="M48 34 L54 49 L52 63 L48 67 L44 63 L42 49 Z" fill="url(#tn-ship-cyan-glass)" stroke="#192a3d"/>
+    <path d="M47 41 L45 50 L46 58" stroke="#bef7f1"/>
+    <path d="M39 65 L43 71 L43 81 L38 77 Z M57 65 L58 77 L53 81 L53 71 Z" fill="#c3cbd0"/>
+    <path d="M44 73 L52 73 L53 85 L43 85 Z" fill="#172739" stroke="#8194a5"/>
+    <path d="M45 77 L51 77 M45 80 L51 80" stroke="#58758b"/>
+    <path d="M44 88 L52 88" stroke="#bdf8fd" stroke-width="2"/>
+    <path d="M17 68 L21 69 M75 69 L79 68" stroke="#d5b274" stroke-width="2"/>
+  </symbol>
+  <symbol id="courier" viewBox="0 0 96 112">
+    <title>Courier · amber twin-pod cargo tender</title>
+    <path data-part="exhaust" d="M21 85 L33 85 Q34 99 27 105 Q20 99 21 85 Z M63 85 L75 85 Q76 99 69 105 Q62 99 63 85 Z" fill="url(#tn-ship-amber-drive)"/>
+    <path d="M27 48 L69 48 L69 59 L27 59 Z M27 70 L69 70 L69 78 L27 78 Z" fill="#493d32" stroke="#a0875f"/>
+    <path data-part="hull" d="M48 15 L59 26 L60 44 L57 50 L57 80 L52 89 L44 89 L39 80 L39 50 L36 44 L37 26 Z" fill="url(#tn-ship-courier-hull)" stroke="#d3b57d"/>
+    <path d="M17 36 L32 36 L36 43 L36 79 L32 87 L19 87 L14 80 L14 44 Z M64 36 L79 36 L82 44 L82 80 L77 87 L64 87 L60 79 L60 43 Z" fill="url(#tn-ship-courier-hull)" stroke="#bca16e"/>
+    <path d="M18 44 L32 44 L32 57 L18 57 Z M18 62 L32 62 L32 76 L18 76 Z M64 44 L78 44 L78 57 L64 57 Z M64 62 L78 62 L78 76 L64 76 Z" fill="#4d4439" stroke="#8e7752"/>
+    <path d="M20 46 L20 54 M20 64 L20 73 M66 46 L66 54 M66 64 L66 73" stroke="#c4ab7a"/>
+    <path d="M17 59 L33 59 M63 59 L79 59" stroke="#e0b156" stroke-width="2"/>
+    <path d="M48 18 L48 29 L39 34 L40 27 Z" fill="#ffe5b3" fill-opacity=".7"/>
+    <path data-part="canopy" d="M41 32 L48 28 L55 32 L54 44 L42 44 Z" fill="url(#tn-ship-amber-glass)" stroke="#51432e"/>
+    <path d="M43 34 L47 32 M43 36 L43 40" stroke="#fff1c6"/>
+    <path d="M43 50 L53 50 L53 73 L50 79 L46 79 L43 73 Z" fill="#353a3b" stroke="#a6926d"/>
+    <path d="M45 55 L51 55 M45 59 L51 59 M45 63 L51 63 M45 67 L51 67" stroke="#778180"/>
+    <path d="M20 82 L32 82 L32 87 L20 87 Z M64 82 L76 82 L76 87 L64 87 Z" fill="#232c32"/>
+    <path d="M22 87 L31 87 M65 87 L74 87" stroke="#ffe1a1" stroke-width="2"/>
+    <path d="M15 47 L15 52 M81 47 L81 52" stroke="#a4ded9" stroke-width="2"/>
+  </symbol>
+  <symbol id="express" viewBox="0 0 96 112">
+    <title>Express · porcelain swept-wing starliner</title>
+    <path data-part="exhaust" d="M22 78 L30 78 Q31 91 26 97 Q21 91 22 78 Z M38 88 L45 88 Q46 100 41 106 Q37 100 38 88 Z M51 88 L58 88 Q59 100 55 106 Q50 100 51 88 Z M66 78 L74 78 Q75 91 70 97 Q65 91 66 78 Z" fill="url(#tn-ship-cyan-drive)"/>
+    <path data-part="hull" d="M48 6 C54 15 57 33 59 44 C64 52 78 58 88 71 L88 81 L73 77 L61 68 L59 84 L54 91 L42 91 L37 84 L35 68 L23 77 L8 81 L8 71 C18 58 32 52 37 44 C39 33 42 15 48 6 Z" fill="url(#tn-ship-express-hull)" stroke="#bcc9cd"/>
+    <path d="M48 9 C45 25 44 34 43 43 L48 37 Z" fill="#ffffff" fill-opacity=".85"/>
+    <path d="M49 12 C54 26 55 36 56 45 L49 38 Z" fill="#738797"/>
+    <path d="M36 52 C29 61 18 65 12 73 L12 76 L26 71 L38 60 Z M60 52 C67 61 78 65 84 73 L84 76 L70 71 L58 60 Z" fill="#3c5367"/>
+    <path d="M18 69 L30 63 M66 63 L78 69" stroke="#c8dce1"/>
+    <path data-part="canopy" d="M48 34 C54 42 55 50 53 58 L48 66 L43 58 C41 50 42 42 48 34 Z" fill="url(#tn-ship-cyan-glass)" stroke="#3f5968"/>
+    <path d="M47 40 C44 46 44 51 45 55" stroke="#d0fffb"/>
+    <path d="M38 65 L42 71 L43 84 L39 84 L36 78 Z M58 65 L60 78 L57 84 L53 84 L54 71 Z" fill="#edf0e4"/>
+    <path d="M45 71 L51 71 L53 86 L43 86 Z" fill="#405467"/>
+    <path d="M46 74 L50 74 M46 78 L50 78 M45 82 L51 82" stroke="#96adb9"/>
+    <path d="M22 73 L30 73 L30 80 L22 80 Z M66 73 L74 73 L74 80 L66 80 Z M38 85 L45 85 L45 91 L38 91 Z M51 85 L58 85 L58 91 L51 91 Z" fill="#21394b" stroke="#8ba2ae"/>
+    <path d="M23 80 L29 80 M67 80 L73 80 M39 91 L44 91 M52 91 L57 91" stroke="#d0fffb" stroke-width="2"/>
+    <path d="M10 74 L12 73 M84 73 L86 74" stroke="#edc580" stroke-width="2"/>
+    <path d="M40 57 L37 62 M56 57 L59 62" stroke="#d6ad65"/>
+  </symbol>
+  <symbol id="wisp" viewBox="0 0 96 112">
+    <title>Wisp · 200 Hz ultra-narrow needle scout</title>
+    <path data-part="exhaust" d="M45 81 L51 81 Q53 94 48 102 Q43 94 45 81 Z" fill="url(#tn-ship-cyan-drive)"/>
+    <path data-part="hull" d="M48 10 C52 25 53 36 53 48 L59 64 L58 76 L53 71 L52 82 L44 82 L43 71 L38 76 L37 64 L43 48 C43 36 44 25 48 10 Z" fill="url(#tn-ship-scout-hull)" stroke="#9eafb9"/>
+    <path d="M48 13 L48 40 L45 46 L45 32 Z" fill="#e4f1eb"/>
+    <path data-part="canopy" d="M48 37 L51 48 L50 59 L48 63 L46 59 L45 48 Z" fill="url(#tn-ship-cyan-glass)" stroke="#264656"/>
+    <path d="M47 44 L47 52" stroke="#c7fff6"/>
+    <path d="M42 56 L40 65 L40 70 L44 65 Z M54 56 L56 65 L56 70 L52 65 Z" fill="#213f50"/>
+    <path d="M46 66 L50 66 L51 77 L45 77 Z" fill="#203848" stroke="#688b9b"/>
+    <path d="M46 70 L50 70 M46 73 L50 73" stroke="#72929f"/>
+    <path d="M45 80 L51 80" stroke="#d1fff6" stroke-width="2"/>
+    <path d="M38 66 L39 64 M57 64 L58 66" stroke="#d1ad6d"/>
+    <path d="M47 27 L49 27" stroke="#8ff5e8"/>
+  </symbol>
+  <symbol id="hauler" viewBox="0 0 96 112">
+    <title>Hauler · 2300 Hz FSK heavy cargo platform</title>
+    <path data-part="exhaust" d="M19 88 L32 88 Q34 100 25 106 Q17 100 19 88 Z M42 88 L54 88 Q56 100 48 106 Q40 100 42 88 Z M64 88 L77 88 Q79 100 71 106 Q62 100 64 88 Z" fill="url(#tn-ship-amber-drive)"/>
+    <path data-part="hull" d="M36 16 L60 16 L65 26 L65 33 L81 33 L87 41 L87 80 L79 90 L17 90 L9 80 L9 41 L15 33 L31 33 L31 26 Z" fill="url(#tn-ship-courier-hull)" stroke="#bb9e70"/>
+    <path d="M35 26 L39 20 L57 20 L61 26 L59 36 L37 36 Z" fill="#d8c49d"/>
+    <path data-part="canopy" d="M37 27 L59 27 L57 35 L39 35 Z" fill="url(#tn-ship-amber-glass)" stroke="#423c34"/>
+    <path d="M48 28 L48 34 M40 29 L44 29" stroke="#f7e7bc"/>
+    <path d="M15 41 L31 41 L31 57 L15 57 Z M15 63 L31 63 L31 80 L15 80 Z M65 41 L81 41 L81 57 L65 57 Z M65 63 L81 63 L81 80 L65 80 Z" fill="#4c473d" stroke="#a88c60"/>
+    <path d="M18 44 L18 54 M22 44 L22 54 M18 66 L18 77 M22 66 L22 77 M68 44 L68 54 M72 44 L72 54 M68 66 L68 77 M72 66 L72 77" stroke="#8d7d60"/>
+    <path d="M14 60 L32 60 M64 60 L82 60" stroke="#ecc278" stroke-width="2"/>
+    <path d="M37 41 L59 41 L59 77 L55 82 L41 82 L37 77 Z" fill="#303b40" stroke="#a49b7c"/>
+    <path d="M41 46 L55 46 L55 57 L41 57 Z M41 63 L55 63 L55 74 L41 74 Z" fill="#62706b" stroke="#8c9b8f"/>
+    <path d="M44 49 L52 49 M44 52 L52 52 M44 66 L52 66 M44 69 L52 69" stroke="#273e42"/>
+    <path d="M18 84 L32 84 L32 91 L18 91 Z M41 84 L55 84 L55 91 L41 91 Z M64 84 L78 84 L78 91 L64 91 Z" fill="#25343b" stroke="#8d8368"/>
+    <path d="M20 91 L30 91 M43 91 L53 91 M66 91 L76 91" stroke="#ffe4ae" stroke-width="2"/>
+    <path d="M10 44 L10 49 M86 44 L86 49" stroke="#a1dacf" stroke-width="2"/>
+    <path d="M10 75 L14 79 M82 79 L86 75" stroke="#c4ab77" stroke-width="2"/>
+  </symbol>
+  <use href="#wayfarer" x="0" y="0" width="96" height="112"/>
+  <use href="#scout" x="96" y="0" width="96" height="112"/>
+  <use href="#courier" x="192" y="0" width="96" height="112"/>
+  <use href="#express" x="288" y="0" width="96" height="112"/>
+  <use href="#wisp" x="384" y="0" width="96" height="112"/>
+  <use href="#hauler" x="480" y="0" width="96" height="112"/>
+</svg>

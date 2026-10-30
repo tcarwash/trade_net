@@ -72,6 +72,23 @@ class MailNetwork:
         self.events.append({"tick": self.tick, "event": "queued", "id": message_id})
         return message
 
+    def cancel(self, message_id: str):
+        """Cancel local simulated DATA and its ACK, not physical RF custody.
+
+        Delivery only stores a manifest in this simulator, not remote inventory
+        mutations. This is not a distributed-ledger cancellation protocol.
+        """
+        message = self.messages.get(message_id)
+        if (not message or message.get("type") != "data" or
+                message.get("status") not in
+                ("queued", "transmitting", "delivered", "expired", "aborted")):
+            raise MailError("message cannot be cancelled")
+        ack = self.messages.get("ack:" + message_id)
+        message["status"] = "aborted"
+        if ack is not None:
+            ack["status"] = "aborted"
+        return message
+
     def step(self, loss=.15, budget_frames=8):
         """Advance logical time; process at most budget_frames transmissions.
 
@@ -87,7 +104,7 @@ class MailNetwork:
         for m in pending:
             if budget_frames <= 0:
                 break
-            if m["status"] in ("acknowledged", "delivered", "expired"):
+            if m["status"] in ("acknowledged", "delivered", "expired", "aborted"):
                 continue
             if self.tick - m["created"] > m["ttl"]:
                 m["status"] = "expired"

@@ -45,14 +45,20 @@ class Game:
     active_ship_id: str = "ship-1"
     next_ship_number: int = 2
     hard_mode: bool = False
+    galaxies: dict = field(default_factory=dict)
 
     def __post_init__(self):
+        if not self.galaxies:
+            self.galaxies = {"home": {"name": self.name,
+                "specialization": self.specialization, "ports": self.ports}}
         # Migrate version-one single-ship saves without changing their schema.
         if not self.fleet and self.active_ship_id:
             self.ship.setdefault("location", self.location)
             self.ship.setdefault("cargo", self.cargo)
             self.ship.setdefault("id", self.active_ship_id)
             self.fleet = {self.active_ship_id: self.ship}
+        for ship in self.fleet.values():
+            ship.setdefault("galaxy", "home")
         if self.active_ship_id not in self.fleet:
             self.active_ship_id = next(iter(self.fleet), "")
         if self.active_ship_id:
@@ -62,6 +68,10 @@ class Game:
         self.ship = self.fleet[self.active_ship_id]
         self.location = self.ship["location"]
         self.cargo = self.ship["cargo"]
+        galaxy = self.galaxies[self.ship["galaxy"]]
+        self.name = galaxy["name"]
+        self.specialization = galaxy["specialization"]
+        self.ports = galaxy["ports"]
 
     def _all_arrivals(self):
         for ship in self.fleet.values():
@@ -79,10 +89,17 @@ class Game:
         self._bind_ship()
         return {"active_ship_id": ship_id, "location": self.location}
 
-    def _purchase_ship(self, tier: int = 0) -> dict:
+    def _purchase_ship(self, tier: int = 0, class_id: str | None = None) -> dict:
+        hull = None
+        if class_id is not None:
+            from .modems import SHIPS
+            hull = next((item for item in SHIPS if item["id"] == class_id), None)
+            if hull is None:
+                raise GameError("unknown ship class")
+            tier = hull["tier"]
         if type(tier) is not int or not 0 <= tier < len(TIERS):
             raise GameError("invalid ship class")
-        cost = (350, 900, 1800)[tier]
+        cost = hull["cost"] if hull else (350, 900, 1800)[tier]
         if self.credits < cost:
             raise GameError("insufficient credits for ship")
         self.credits -= cost
@@ -93,11 +110,16 @@ class Game:
                                "condition": 100, "destination": None,
                                "arrival_tick": None, "modem_tier": tier,
                                "speed": tier + 1, "location": self.location,
+                               "galaxy": self.ship.get("galaxy", "home"),
                                "cargo": {g: 0 for g in GOODS}}
+        if hull:
+            self.fleet[ship_id].update({key: hull[key] for key in
+                ("name", "capacity", "speed", "frames_per_tick", "max_bandwidth_hz", "sprite", "description")})
+            self.fleet[ship_id]["class_id"] = hull["id"]
         if not self.active_ship_id:
             self.active_ship_id = ship_id
             self._bind_ship()
-        return {"ship_id": ship_id, "class": TIERS[tier]["name"], "cost": cost}
+        return {"ship_id": ship_id, "class": self.fleet[ship_id]["name"], "cost": cost}
 
     def damage_ship(self, ship_id: str, amount: int, origin: str) -> dict:
         """Failed RF mission: return home damaged, or lose ship in hard mode."""
@@ -195,6 +217,10 @@ class Game:
                 result = self._trade("sell", **kwargs)
             elif action == "travel":
                 result = self._travel(**kwargs)
+            elif action == "jump":
+                result = self._jump(**kwargs)
+            elif action == "abort_transmission":
+                result = self._abort_transmission(**kwargs)
             elif action == "wait":
                 result = self._wait(**kwargs)
             elif action == "repair":
@@ -276,6 +302,73 @@ class Game:
         return {"destination": destination, "arrival_tick": self.ship["arrival_tick"],
                 "fuel_cost": fuel_cost}
 
+    def _jump(self, galaxy: str, destination: str, voyage_id: str) -> dict:
+        self._available()
+        if (not isinstance(voyage_id, str) or not 1 <= len(voyage_id) <= 128 or
+                any(s.get("voyage", {}).get("id") == voyage_id for s in self.fleet.values()) or
+                any(c["action"] == "jump" and c["args"].get("voyage_id") == voyage_id
+                    for c in self.completed_commands.values())):
+            raise GameError("invalid or duplicate voyage ID")
+        if (galaxy not in self.galaxies or galaxy == self.ship["galaxy"] or
+                destination not in self.galaxies[galaxy]["ports"]):
+            raise GameError("invalid galaxy destination")
+        if self.incoming_reserved:
+            raise GameError("incoming cargo reservation prevents departure")
+        if self.ship["fuel"] < 10:
+            raise GameError("insufficient ship fuel")
+        if self.ship["condition"] < 10:
+            raise GameError("repair ship before traveling")
+        voyage = {"id": voyage_id, "origin_galaxy": self.ship["galaxy"],
+                  "origin": self.location, "galaxy": galaxy, "destination": destination}
+        self.ship["fuel"] -= 10
+        self.ship["radio_mission"] = voyage_id
+        self.ship["voyage"] = voyage
+        return {**voyage, "fuel_cost": 10}
+
+    def _abort_transmission(self, voyage_id: str, damage: int) -> dict:
+        """Trusted simulator coordinator supplies voyage identity and penalty."""
+        voyage = self.ship.get("voyage") if self.active_ship_id else None
+        if not voyage or voyage["id"] != voyage_id or type(damage) is not int or damage not in (0, 10):
+            raise GameError("invalid active voyage abort")
+        ship = self.ship
+        ship_id = self.active_ship_id
+        origin, galaxy = voyage["origin"], voyage["origin_galaxy"]
+        if galaxy not in self.galaxies or origin not in self.galaxies[galaxy]["ports"]:
+            raise GameError("invalid voyage origin")
+        ship["galaxy"] = galaxy
+        ship["location"] = origin
+        ship.pop("voyage", None)
+        ship.pop("voyage_manifest", None)
+        ship.pop("radio_mission", None)
+        ship["destination"] = None
+        ship["arrival_tick"] = None
+        self._bind_ship()
+        if damage:
+            result = self.damage_ship(ship_id, damage, origin)
+        else:
+            result = {"ship_id": ship_id, "damage": 0, "condition": ship["condition"],
+                      "destroyed": False, "returned_to": origin}
+        return {**result, "voyage_id": voyage_id, "origin_galaxy": galaxy,
+                "penalty_applied": bool(damage)}
+
+    def complete_voyage(self, voyage_id: str) -> dict | None:
+        """Trusted coordinator boundary: call only after the manifest's ACK.
+
+        Deliberately not a command; browser callers cannot invent an arrival.
+        Replayed completion is harmless, including for an inactive ship.
+        """
+        for ship in self.fleet.values():
+            voyage = ship.get("voyage")
+            if voyage and voyage["id"] == voyage_id:
+                ship["galaxy"] = voyage["galaxy"]
+                ship["location"] = voyage["destination"]
+                del ship["voyage"]
+                ship.pop("radio_mission", None)
+                if ship["id"] == self.active_ship_id:
+                    self._bind_ship()
+                return {"ship_id": ship["id"], **voyage}
+        return None
+
     def _set_hard_mode(self, enabled: bool) -> dict:
         if type(enabled) is not bool:
             raise GameError("hard mode must be a boolean")
@@ -289,7 +382,7 @@ class Game:
             raise GameError("wait must be 1-100 ticks")
         for _ in range(ticks):
             self.tick += 1
-            for port in self.ports.values():
+            for port in self._market_ports():
                 for good in GOODS:
                     port["stock"][good] = max(0, min(300,
                         port["stock"][good] + port["production"][good] -
@@ -297,6 +390,10 @@ class Game:
             self._all_arrivals()
         return {"tick": self.tick, "location": self.location,
                 "in_transit": self.ship["destination"] is not None}
+
+    def _market_ports(self):
+        for galaxy in self.galaxies.values():
+            yield from galaxy["ports"].values()
 
     def sync_utc(self, now: float | None = None) -> dict:
         """Advance to a common UTC epoch boundary, including offline catch-up.
@@ -311,7 +408,7 @@ class Game:
             return {"epoch": epoch, "advanced": 0, "tick": self.tick}
         elapsed = max(0, epoch - self.clock_epoch)
         if elapsed:
-            for port in self.ports.values():
+            for port in self._market_ports():
                 for good in GOODS:
                     delta = port["production"][good] - port["consumption"][good]
                     port["stock"][good] = max(0, min(300, port["stock"][good] + elapsed * delta))
@@ -368,6 +465,12 @@ class Game:
         self.ship["modem_tier"] = tier + 1
         self.ship["speed"] = tier + 2
         self.ship["name"] = next_tier["name"]
+        from .modems import SHIPS
+        hull = next(item for item in SHIPS if item["name"] == next_tier["name"])
+        self.ship.update({key: hull[key] for key in
+            ("speed", "frames_per_tick", "max_bandwidth_hz", "sprite", "description")})
+        self.ship["class_id"] = hull["id"]
+        self.ship["capacity"] = max(self.ship["capacity"], hull["capacity"])
         return {"cost": cost, "ship": next_tier["name"],
                 "speed": self.ship["speed"],
                 "max_bandwidth_hz": next_tier["max_bandwidth_hz"]}

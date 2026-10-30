@@ -6,6 +6,7 @@ claim cross-galaxy atomic settlement or verified RF delivery.
 
 from __future__ import annotations
 
+import json
 import math
 import random
 
@@ -36,7 +37,14 @@ def seed_offers(game: Game) -> None:
                                "route": [], "hop_index": 0, "attempts": 0,
                                "origin_id": None,
                                "delivery_id": None, "settled": False,
-                               "payload_bytes": 128 if i else 2048}
+                               "payload_bytes": 0}
+        game.contracts[cid]["payload_bytes"] = len(manifest_payload(game.contracts[cid]))
+
+
+def manifest_payload(contract: dict) -> bytes:
+    return json.dumps({"contract": contract["id"], "good": contract["good"],
+                       "quantity": contract["quantity"], "destination": contract["destination"]},
+                      separators=(",", ":")).encode()
 
 
 def dispatch(game: Game, net: Network, contract_id: str, route: list[str] | None = None,
@@ -71,7 +79,9 @@ def dispatch(game: Game, net: Network, contract_id: str, route: list[str] | None
     dst = c["route"][c["hop_index"] + 1]
     # The same deterministic simulator is used for all hops. Intermediate hop
     # observations are NOT a direct local RF contact or discovery event.
-    result = simulate_hop(net, src, dst, c["payload_bytes"], loss)
+    # Measure the compact manifest's actual bytes, not an invented mission size.
+    manifest = manifest_payload(c)
+    result = simulate_hop(net, src, dst, len(manifest), loss)
     c["attempts"] += 1
     # Simulation airtime advances the economy and may exhaust a deadline.
     game._wait(ticks=min(100, max(1, math.ceil(result["elapsed_seconds"] / 60))))

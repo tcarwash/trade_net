@@ -163,6 +163,19 @@ class BrowserUIContractTests(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertIn(marker, html)
 
+    def test_haven_operations_include_procurement_and_local_unloading(self):
+        html = self.browser_html()
+        for marker in ("◇ Headquarters operations", "Cargo Exchange requisitions",
+                       "g.haven_orders", "g.next_haven_order_tick",
+                       "command('fulfill_haven_order'", "command('unload_export'",
+                       "state.haven_warehouse_capacity", "function shipyardPrice(base)",
+                       "shipyardPrice(ship.cost)", "displayReward=job.destination==='Haven'",
+                       "entry.action==='fulfill_haven_order'", "Interactive Haven headquarters layout",
+                       "campus-site", "campus-levels", "haven-facility-", "SELECT TO BUILD",
+                       "Source ${good}", "g.price_memory?.[good]?.lowest_buy"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, html)
+
 
 if __name__ == "__main__":
     unittest.main()

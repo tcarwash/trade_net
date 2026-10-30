@@ -155,6 +155,15 @@ HAVEN_FACILITIES = {
     "intelligence": {"name": "Intelligence office", "max_level": 2, "credits": 330,
                      "good": "medicine", "quantity": 2,
                      "effect": "Level 1 charts ports and reveals route hazards; level 2 raises encounter payouts"},
+    "shipyard": {"name": "Shipyard gantry", "max_level": 2, "credits": 480,
+                 "good": "ore", "quantity": 4,
+                 "effect": "10% cheaper new ships at Haven per level"},
+    "logistics": {"name": "Cargo exchange", "max_level": 2, "credits": 340,
+                  "good": "medicine", "quantity": 2,
+                  "effect": "Unlock multi-resource Haven requisitions; +10% Haven freight pay per level"},
+    "liaison": {"name": "Faction liaison", "max_level": 2, "credits": 300,
+                "good": "food", "quantity": 3,
+                "effect": "Private captain lots refresh four ticks sooner per level"},
 }
 ENCOUNTER_SITES = {
     "Kepler": {"title": "The Drifting Tug", "description": "A silent cargo tug is transmitting a weak distress beacon.",
@@ -293,6 +302,9 @@ class Game:
     faction_storylines: dict = field(default_factory=dict)
     faction_perks: list[str] = field(default_factory=list)
     captain_nemeses: list[str] = field(default_factory=list)
+    haven_orders: dict = field(default_factory=dict)
+    next_haven_order_number: int = 1
+    next_haven_order_tick: int = 0
 
     def __post_init__(self):
         if not self.galaxies:
@@ -337,6 +349,7 @@ class Game:
         self._replenish_vip_jobs()
         self._refresh_sector_events()
         self._refresh_local_encounters()
+        self._refresh_haven_orders()
         # New authored expeditions appear in existing saves without resetting
         # completed or in-progress missions from earlier releases.
         for template in EXPEDITION_TEMPLATES:
@@ -417,6 +430,42 @@ class Game:
         if len(self.local_encounters) > 16:
             for key in list(self.local_encounters)[:-16]:
                 del self.local_encounters[key]
+
+    def _refresh_haven_orders(self) -> None:
+        """Post one persistent warehouse procurement job, without RF traffic.
+
+        Offline catch-up expires stale orders but creates only one fresh job,
+        rather than backfilling hundreds of unattended procurement cycles.
+        """
+        for order in self.haven_orders.values():
+            if order["status"] == "open" and self.tick > order["deadline"]:
+                order["status"] = "expired"
+        if self.haven_facilities.get("logistics", 0) < 1:
+            return
+        if self.tick < self.next_haven_order_tick or any(
+                order["status"] == "open" for order in self.haven_orders.values()):
+            return
+        number = self.next_haven_order_number
+        self.next_haven_order_number += 1
+        goods = ("food", "ore", "medicine", "fuel", "iridium", "mycelium")
+        indexes = [(self.seed + number) % len(goods),
+                   (self.seed + number + 2) % len(goods)]
+        if self.haven_facilities["logistics"] >= 2:
+            indexes.append((self.seed + number + 4) % len(goods))
+        requirements = {goods[i]: (1 if goods[i] in ("iridium", "mycelium") else 2 + (number + i) % 2)
+                        for i in indexes}
+        reward = 250 + sum(BASE_PRICE[good] * amount * 3 for good, amount in requirements.items())
+        key = f"haven-order-{number:05d}"
+        self.haven_orders[key] = {"id": key, "title": "Haven Station Requisition",
+                                  "description": "Import supplies from other worlds and stage them in Haven's warehouse.",
+                                  "requirements": requirements, "reward": reward,
+                                  "start_tick": self.tick, "deadline": self.tick + 2016,
+                                  "status": "open", "source": "local_simulation"}
+        self.next_haven_order_tick = self.tick + 48
+        if len(self.haven_orders) > 12:
+            for key in list(self.haven_orders)[:-12]:
+                if self.haven_orders[key]["status"] != "open":
+                    del self.haven_orders[key]
 
     def _advance_faction_followups(self):
         """A completed relationship arc offers one later, playable consequence."""
@@ -594,7 +643,8 @@ class Game:
         floor = (self.price(port, good, "sell", stock_override=max(0, stock - lot_size)) + 1
                  if at_home else 0)
         unit = max(floor, normal * 85 // 100)
-        next_tick = self.captain_deals.get(npc_id, -24) + 24
+        cooldown = 24 - 4 * self.haven_facilities.get("liaison", 0)
+        next_tick = self.captain_deals.get(npc_id, -cooldown) + cooldown
         return {"npc_id": npc_id, "captain": captain["name"], "port": port,
                 "good": good, "unit_price": unit, "normal_price": normal,
                 "max_quantity": min(lot_size, stock), "next_tick": next_tick,
@@ -622,9 +672,10 @@ class Game:
         self.ship.setdefault("export_cargo", {})[good] = (
             self.ship["export_cargo"].get(good, 0) + (amount if self.location != "Haven" else 0))
         self.captain_deals[npc_id] = self.tick
+        cooldown = 24 - 4 * self.haven_facilities.get("liaison", 0)
         return {"captain": quote["captain"], "npc_id": npc_id,
                 "good": good, "amount": amount, "unit_price": quote["unit_price"],
-                "total": total, "next_tick": self.tick + 24}
+                "total": total, "next_tick": self.tick + cooldown}
 
     def _request_sector_aid(self, event_id: str, npc_id: str) -> dict:
         """Spend one point of goodwill to improve an active local dispatch."""
@@ -753,9 +804,32 @@ class Game:
         self.ship["export_cargo"][good] -= amount
         self.credits -= quote["credits"]
         self.haven_facilities[facility] = quote["level"] + 1
+        if facility == "logistics":
+            self._refresh_haven_orders()
         return {"facility": facility, "name": quote["name"],
                 "level": self.haven_facilities[facility], "credits_spent": quote["credits"],
                 "good": good, "quantity": amount, "effect": quote["effect"]}
+
+    def _fulfill_haven_order(self, order_id: str) -> dict:
+        self._available()
+        if self.ship.get("galaxy", "home") != "home" or self.location != "Haven":
+            raise GameError("return to Haven to fulfill its station requisitions")
+        order = self.haven_orders.get(order_id)
+        if not order or order["status"] != "open" or self.tick > order["deadline"]:
+            raise GameError("this Haven requisition is no longer available")
+        for good, amount in order["requirements"].items():
+            if self.export_warehouse.get(good, 0) < amount:
+                raise GameError(f"import and unload {amount} {good} into the Haven warehouse")
+        for good, amount in order["requirements"].items():
+            self.export_warehouse[good] -= amount
+        self.credits += order["reward"]
+        self.factions["traders"] += 2
+        order.update(status="fulfilled", completed_tick=self.tick)
+        self._refresh_haven_orders()
+        return {"order_id": order_id, "reward": order["reward"],
+                "requirements": deepcopy(order["requirements"]),
+                "warehouse": deepcopy(self.export_warehouse), "credits": self.credits,
+                "source": "local_simulation"}
 
     def _accept_expedition(self, expedition_id: str) -> dict:
         self._available()
@@ -1056,7 +1130,10 @@ class Game:
         eligible = self.ship.setdefault("export_cargo", {})
         eligible[job["good"]] = max(0, eligible.get(job["good"], 0) - job["quantity"])
         self.ports[self.location]["stock"][job["good"]] += job["quantity"]
-        payout = job["reward"] if resolution == "commercial" else job["reward"] // 2
+        pay = job["reward"]
+        if job["destination"] == "Haven":
+            pay = pay * (100 + 10 * self.haven_facilities.get("logistics", 0)) // 100
+        payout = pay if resolution == "commercial" else pay // 2
         self.credits += payout
         self.factions["traders"] += 1
         if resolution == "reconcile":
@@ -1148,7 +1225,10 @@ class Game:
             tier = hull["tier"]
         if type(tier) is not int or not 0 <= tier < len(TIERS):
             raise GameError("invalid ship class")
-        cost = hull["cost"] if hull else (350, 900, 1800)[tier]
+        base_cost = hull["cost"] if hull else (350, 900, 1800)[tier]
+        discount = (10 * self.haven_facilities.get("shipyard", 0)
+                    if self.location == "Haven" and self.ship.get("galaxy", "home") == "home" else 0)
+        cost = max(1, base_cost * (100 - discount) // 100)
         if self.credits < cost:
             raise GameError("insufficient credits for ship")
         self.credits -= cost
@@ -1168,7 +1248,8 @@ class Game:
         if not self.active_ship_id:
             self.active_ship_id = ship_id
             self._bind_ship()
-        return {"ship_id": ship_id, "class": self.fleet[ship_id]["name"], "cost": cost}
+        return {"ship_id": ship_id, "class": self.fleet[ship_id]["name"],
+                "cost": cost, "base_cost": base_cost, "discount_percent": discount}
 
     def damage_ship(self, ship_id: str, amount: int, origin: str) -> dict:
         """Failed RF mission: return home damaged, or lose ship in hard mode."""
@@ -1351,6 +1432,8 @@ class Game:
                 result = self._resolve_local_encounter(**kwargs)
             elif action == "upgrade_haven":
                 result = self._upgrade_haven(**kwargs)
+            elif action == "fulfill_haven_order":
+                result = self._fulfill_haven_order(**kwargs)
             else:
                 raise GameError(f"unknown action: {action}")
         except (GameError, TypeError, KeyError) as exc:
@@ -1567,6 +1650,7 @@ class Game:
             self._refresh_local_encounters()
         self._replenish_local_jobs()
         self._advance_faction_followups()
+        self._refresh_haven_orders()
         self.observe_markets()
         return {"tick": self.tick, "location": self.location,
                 "in_transit": self.ship["destination"] is not None}
@@ -1600,6 +1684,7 @@ class Game:
             self._refresh_local_encounters()
             self._replenish_local_jobs()
             self._advance_faction_followups()
+            self._refresh_haven_orders()
             self.observe_markets()
         return {"epoch": self.clock_epoch, "advanced": elapsed, "tick": self.tick}
 

@@ -33,7 +33,7 @@ The **optional guided run** teaches the first real freight loop—review a contr
 3. Deliver the cargo from the contract board when docked, or sell speculative cargo at higher-demand markets.
 4. Buy more ships, upgrade their holds or modem class, and expand your routes.
 
-**Your export base is Haven.** To fulfill a real partner's radio contract, buy the requested goods at another starport, carry them back to Haven aboard a ship, and use **Comms → Unload all imported cargo** to put them in the export warehouse. Then prepare the partner contract and transmit from Haven. Buying goods at Haven itself does not create eligible export cargo; its ordinary market stock is separate from your warehouse. Failed/rejected deliveries return reserved goods to that warehouse for a retry.
+**Your export base is Haven.** To fulfill a real partner's radio contract, buy the requested goods at another starport, carry them back to Haven aboard a ship, and use **Fleet → Haven headquarters → Unload** (also available in Comms) to put them in the export warehouse. Then prepare the partner contract and transmit from Haven. Buying goods at Haven itself does not create eligible export cargo; its ordinary market stock is separate from your warehouse. Failed/rejected deliveries return reserved goods to that warehouse for a retry.
 
 Some radio contracts are **long-haul manifests** requesting two resource types and larger quantities. Stockpile those goods at Haven over multiple game sessions, then reserve the entire manifest and make a single radio delivery when the next contact is available. Supplies remain safely in the export warehouse between sessions; a partial manifest cannot be transmitted as a completed delivery. Radio contract offers do not currently expire while you gather goods.
 
@@ -63,7 +63,16 @@ Three more expeditions add recurring characters and faction choices: *Embers Und
 
 **Discovery encounters** now give you a decision when you first reach any of the nine starports beyond Haven. You might tow stranded crew using fuel, bring medical supplies to an isolated lab, risk hull damage to salvage rare materials, or file a safer survey report for a smaller reward. The Flight deck shows the available choices with their costs and payouts; the Contracts screen tracks open and resolved discoveries and can plot a course back to an unfinished site. Each encounter can only pay out once, and its outcome and faction reputation persist after loading a save.
 
-**Haven headquarters construction** is in the Fleet screen. Build permanent advantages by buying ore or medicine at another starport, bringing it to Haven in your active ship, and spending that imported cargo plus credits on a facility. The repair bay reduces hull repair prices by 15% per level (up to three); the export warehouse starts at 60 units and gains 40 units per upgrade (up to three); the intelligence office reveals port identities and route hazards at level one, and adds 25% to discovery encounter credit payouts at level two. Construction materials must still be **aboard the active ship**, not already unloaded into the export warehouse. Upgrades persist, and all three facilities can be developed without radio access.
+**Haven headquarters construction** is in the Fleet screen. The interactive development district shows your growing base: choose any building to jump to its construction controls. Build permanent advantages by importing ore, medicine, or food from another starport and spending that cargo plus credits on one of six facilities:
+
+- **Repair bay:** 15% cheaper hull repairs per level (three levels).
+- **Export warehouse:** starts at 60 units and gains 40 storage units per level (three levels).
+- **Intelligence office:** reveals port identities and route hazards at level one; adds 25% to discovery encounter credit payouts at level two.
+- **Shipyard gantry:** 10% off new ship purchases per level while docked at Haven (two levels).
+- **Cargo exchange:** posts week-long, multi-resource **◇ local** Haven requisitions fulfilled from imported warehouse stock (two resources at level one, three at level two). Each level also increases the payout for ordinary local freight delivered to Haven by 10% (two levels).
+- **Faction liaison:** shortens trusted captains' private-lot restock cooldown from 24 to 20 and then 16 economy ticks (two levels).
+
+Construction materials must still be **aboard the active ship** when you upgrade, not already unloaded into the export warehouse. Cargo Exchange requisitions work the opposite way: unload your imports into the warehouse, then fulfill the full manifest at Haven for credits and Traders reputation. These local requisitions never transmit, and the same warehouse stock can instead be reserved for real **◉ radio** partner contracts. Upgrades and requisition progress persist between sessions; all six facilities work without radio access.
 
 ### Frontier campaign, fog of war, and outfitting
 

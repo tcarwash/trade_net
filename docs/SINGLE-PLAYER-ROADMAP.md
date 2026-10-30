@@ -104,15 +104,25 @@ same physical cargo and travel commands as the economy.
       warehouse level), with existing physical ship-to-base unloading.
 - [x] Repair bay (three levels), export warehouse (three levels) and
       intelligence office (two levels), with a visible construction board.
-- [x] Construction consumes credits and previously imported ore/medicine from
+- [x] Shipyard gantry (two levels), Cargo Exchange (two levels), and faction
+      liaison (two levels), with clear Haven-only savings and progression perks.
+- [x] Construction consumes credits and previously imported ore/medicine/food from
       the active ship. Haven-bought cargo cannot masquerade as imports.
 - [x] The repair bay discounts repair bills; intelligence level one charts
       port names and scans corridor hazards, and level two increases encounter
       earnings without sending radio frames.
-- [ ] Add storage fees and operating costs, shipyard, expedition center,
-      trading exchange and radio observatory upgrades.
-- [ ] Unlock additional mission types and services at higher facility levels.
-- [ ] Create a dedicated base illustration and expanded management screen.
+- [x] Cargo Exchange generates persistent multi-resource local requisitions,
+      funded only by imported warehouse stock, with distinct ◇ local rewards;
+      its levels also boost local freight pay for deliveries to Haven.
+- [x] Shipyard discounts new ships bought at Haven; liaison accelerates
+      trusted captain private-lot availability.
+- [x] Responsive, interactive development-district overview reflects each
+      facility's built and upgraded state and jumps to construction details.
+- [ ] Add storage fees and operating costs, expedition center and radio
+      observatory facilities.
+- [ ] Add more mission types, freely arranged base customization, and services at
+      higher facility levels.
+- [ ] Create a bespoke illustrated base scene and extended management screen.
 
 **Done when:** the player has compelling permanent goals beyond a bank balance.
 
@@ -254,7 +264,8 @@ intentional, legible operator action.
   offline return with no dead ends.
 
 The current solo vertical slice includes incidents, multi-stage expeditions,
-one-time and repeating dockside encounters, three upgradable Haven facilities,
+one-time and repeating dockside encounters, six upgradable Haven facilities,
+warehouse-backed local requisitions,
 recurring local NPC haulers, rival contracts and delayed faction follow-ups.
 One-time alliance/feud arcs, four permanent fleet perks and named recurring
 nemeses now provide lasting consequences. Their shipments, missions and market

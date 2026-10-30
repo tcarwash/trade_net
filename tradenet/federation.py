@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from .engine import Game, GameError, RARE
 from .network import Network
 from .mail import MailNetwork
 from .modems import TIERS
+from .payloads import Item, encode as encode_bundle
 
 
 def canonical_hash(value: dict) -> str:
@@ -30,6 +32,7 @@ class Federation:
     trades: dict = field(default_factory=dict)
     events: list = field(default_factory=list)
     schema_version: int = 1
+    reports: dict = field(default_factory=dict)
 
     @classmethod
     def demo(cls, local_id="AG7SU", remote_id="SIM-K7OR", seed=42):
@@ -46,7 +49,19 @@ class Federation:
         source = a.ports["Kepler"]["stock"]
         source[a.specialization] -= 6
         a.cargo[a.specialization] += 6
-        return cls({local_id: a, remote_id: b}, Network(local_id))
+        # This cached second-hop bulletin is explicitly simulated, drawn from
+        # another seeded world's real market model, not made-up filler bytes.
+        third = Game.new(b_seed + 1, "SIM-W7ABC Galaxy")
+        second_hop = "SIM-W7ABC"
+        report = {"source": second_hop, "via": remote_id,
+                  "observed_epoch": int(time.time() // 300),
+                  "provenance": "simulated",
+                  "ore_stock": third.ports["Kepler"]["stock"]["ore"],
+                  "ore_production": third.ports["Kepler"]["production"]["ore"],
+                  "market": {good: third.price("Kepler", good, "sell")
+                             for good in ("food", "ore", "fuel", "medicine", *RARE)}}
+        return cls({local_id: a, remote_id: b}, Network(local_id),
+                   reports={second_hop: report})
 
     def propose(self, trade_id: str, seller: str, buyer: str, good: str,
                 quantity: int, unit_price: int, deadline: int = 100,
@@ -129,7 +144,7 @@ class Federation:
         self.events.append(event)
         return event
 
-    def queue_trade(self, mail: MailNetwork, trade_id: str, route=None):
+    def queue_trade(self, mail: MailNetwork, trade_id: str, route=None, weight="light"):
         """Queue terms for asynchronous, receipt-confirmed delivery."""
         t = self._trade(trade_id)
         if t["status"] == "queued":
@@ -143,22 +158,46 @@ class Federation:
             raise GameError("invalid store-and-forward route")
         for station in route:
             mail.add_station(station)
-        payload = self.trade_payload(t)
+        payload = self.trade_payload(t, weight, self.reports)
         tier = TIERS[self.worlds[t["seller"]].ship.get("modem_tier", 0)]
         msg = mail.enqueue("trade:" + trade_id, route, payload, priority=2,
                            frames_per_tick=tier["frames_per_tick"],
                            bandwidth_hz=tier["max_bandwidth_hz"])
         t["route"] = route[:]
+        t["weight"] = weight
+        t["transmitted_bytes"] = len(payload)
         t["status"] = "queued"
         t["custody"] = t["seller"]
         self.events.append({"trade": trade_id, "event": "queued"})
         return msg
 
     @staticmethod
-    def trade_payload(trade: dict) -> bytes:
-        """Only actual trade metadata; never synthetic bytes for game difficulty."""
-        return json.dumps({"trade": trade["id"], "terms_hash": trade["hash"]},
+    def trade_payload(trade: dict, weight="light", reports=None) -> bytes:
+        """Three real-information weights, never zero padding.
+
+        A heavier class requires a cached second-hop report; never invent one.
+        Report source, via and age remain visible to the receiver.
+        """
+        core = json.dumps({"trade": trade["id"], "terms_hash": trade["hash"]},
                           sort_keys=True, separators=(",", ":")).encode()
+        if weight == "light":
+            return core
+        if weight not in ("medium", "heavy"):
+            raise GameError("unknown transmission weight")
+        reports = reports or {}
+        report = next((r for r in reports.values() if r["via"] == trade["buyer"]), None)
+        if not report:
+            raise GameError("no second-hop intelligence available for heavier load")
+        provenance = {"source": report["source"], "via": report["via"],
+                      "epoch": report["observed_epoch"],
+                      "provenance": report["provenance"]}
+        hint = {**provenance, "ore_stock": report["ore_stock"],
+                "ore_production": report["ore_production"]}
+        items = [Item("trade", core), Item("neighbors", json.dumps(hint, separators=(",", ":")).encode())]
+        if weight == "heavy":
+            items.append(Item("market", json.dumps({**provenance, "prices": report["market"]},
+                                                   separators=(",", ":")).encode()))
+        return encode_bundle(items)
 
     def sync_mail(self, mail: MailNetwork):
         """Only an end-to-end returned ACK permits application settlement."""
@@ -226,14 +265,15 @@ class Federation:
         return {"schema_version": self.schema_version,
                 "worlds": {name: world.to_dict() for name, world in self.worlds.items()},
                 "network": self.network.to_dict(), "trades": self.trades,
-                "events": self.events}
+                "events": self.events, "reports": self.reports}
 
     @classmethod
     def from_dict(cls, data):
         if data.get("schema_version") != 1:
             raise GameError("unsupported federation version")
         return cls({name: Game.from_dict(world) for name, world in data["worlds"].items()},
-                   Network.from_dict(data["network"]), data["trades"], data["events"])
+                   Network.from_dict(data["network"]), data["trades"], data["events"],
+                   reports=data.get("reports", {}))
 
     def save(self, path):
         path = Path(path)

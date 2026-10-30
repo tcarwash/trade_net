@@ -6,6 +6,7 @@ from tradenet import GameError
 from tradenet.federation import Federation
 from tradenet.web import App
 from tradenet.mail import MailNetwork
+from tradenet.payloads import decode as decode_bundle
 
 
 class FederationTests(unittest.TestCase):
@@ -171,6 +172,24 @@ class FederationTests(unittest.TestCase):
             self.assertEqual(app.federation.trades[trade_id]["status"], "delivered")
             app.execute({"action": "exchange_settle", "trade_id": trade_id})
             self.assertEqual(App(path, 42, "AG7SU").federation.trades[trade_id]["status"], "settled")
+
+    def test_three_useful_load_classes_increase_real_content(self):
+        t = self.propose()
+        a = self.f.trade_payload(t, "light", self.f.reports)
+        b = self.f.trade_payload(t, "medium", self.f.reports)
+        c = self.f.trade_payload(t, "heavy", self.f.reports)
+        self.assertLess(len(a), len(b))
+        self.assertLess(len(b), len(c))
+        self.assertEqual([item.kind for item in decode_bundle(b)], ["trade", "neighbors"])
+        self.assertEqual([item.kind for item in decode_bundle(c)], ["trade", "neighbors", "market"])
+        self.assertIn(b"ore_stock", b)
+        self.assertIn(b"prices", c)
+        self.assertNotIn(b"padding", c)
+
+    def test_missing_second_hop_report_rejects_medium(self):
+        t = self.propose()
+        with self.assertRaises(GameError):
+            self.f.trade_payload(t, "medium", {})
 
 
 if __name__ == "__main__":

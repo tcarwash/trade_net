@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 import random
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -38,6 +39,8 @@ class Game:
     specialization: str = ""
     contracts: dict = field(default_factory=dict)
     incoming_reserved: int = 0
+    clock_epoch: int | None = None
+    tick_seconds: int = 300
 
     @classmethod
     def new(cls, seed: int = 1, name: str = "Home Galaxy") -> "Game":
@@ -202,6 +205,32 @@ class Game:
                 self.ship["arrival_tick"] = None
         return {"tick": self.tick, "location": self.location,
                 "in_transit": self.ship["destination"] is not None}
+
+    def sync_utc(self, now: float | None = None) -> dict:
+        """Advance to a common UTC epoch boundary, including offline catch-up.
+
+        Markets are linear with per-tick clamping, so bulk advance gives the
+        same stock result as a loop over every missed tick. No clock rollback.
+        """
+        now = time.time() if now is None else now
+        epoch = math.floor(now / self.tick_seconds)
+        if self.clock_epoch is None:
+            self.clock_epoch = epoch
+            return {"epoch": epoch, "advanced": 0, "tick": self.tick}
+        elapsed = max(0, epoch - self.clock_epoch)
+        if elapsed:
+            for port in self.ports.values():
+                for good in GOODS:
+                    delta = port["production"][good] - port["consumption"][good]
+                    port["stock"][good] = max(0, min(300, port["stock"][good] + elapsed * delta))
+            self.tick += elapsed
+            if (self.ship["destination"] is not None and
+                    self.tick >= self.ship["arrival_tick"]):
+                self.location = self.ship["destination"]
+                self.ship["destination"] = None
+                self.ship["arrival_tick"] = None
+            self.clock_epoch = epoch
+        return {"epoch": self.clock_epoch, "advanced": elapsed, "tick": self.tick}
 
     def _repair(self) -> dict:
         self._available()

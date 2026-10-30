@@ -11,14 +11,24 @@ class ExpeditionTests(unittest.TestCase):
         game.ship["location"] = port
         game._bind_ship()
 
-    def test_two_authored_missions_and_older_save_migration(self):
+    def test_authored_missions_and_older_save_migration(self):
         game = Game.new(13)
-        self.assertEqual(set(game.expeditions), {"expedition-relief", "expedition-beacon"})
+        self.assertEqual(set(game.expeditions), {"expedition-relief", "expedition-beacon",
+                                                 "expedition-embers", "expedition-archive",
+                                                 "expedition-blackwake"})
         old_save = game.to_dict()
         del old_save["expeditions"]
         migrated = Game.from_dict(old_save)
         self.assertEqual(set(migrated.expeditions), set(game.expeditions))
         self.assertEqual(migrated.to_dict(), Game.from_dict(migrated.to_dict()).to_dict())
+
+        old_two = game.to_dict()
+        old_two["expeditions"] = {name: game.expeditions[name]
+                                  for name in ("expedition-relief", "expedition-beacon")}
+        old_two["expeditions"]["expedition-relief"]["status"] = "completed"
+        restored = Game.from_dict(old_two)
+        self.assertEqual(restored.expeditions["expedition-relief"]["status"], "completed")
+        self.assertEqual(set(restored.expeditions), set(game.expeditions))
 
     def test_relief_mission_requires_market_cargo_and_a_choice(self):
         game = Game.new(8)

@@ -23,6 +23,7 @@ PORT_ROLES = ("Home hub", "Refinery", "Research enclave", "Mining colony",
               "Salvage outpost", "Fortress station", "Frontier observatory")
 EQUIPMENT = {"scanner": 220, "shield": 350, "navigator": 420, "defense": 380}
 INCIDENT_INTERVAL = 8  # Shared economy ticks; no wall-clock-only randomness.
+NPC_INTERVAL = 6  # A captain's route advances every 30 in-game minutes.
 SECTOR_INCIDENTS = (
     ("Medical emergency", "Aurora", "Vesper", "medicine",
      "A clinic supply convoy is overdue. Medical shipments are urgently needed."),
@@ -72,6 +73,62 @@ EXPEDITION_TEMPLATES = (
                "faction": "miners", "reputation": 3}]},
          {"port": "Haven", "kind": "finish", "title": "File the expedition report",
           "description": "Return to Haven with the relay's findings."}]},
+    {"id": "expedition-embers", "title": "Embers Under Cinder", "issuer_npc": "rin-kestrel",
+     "description": "Rin Kestrel's miners are trapped beneath the Cinder foundry. Carry supports, choose who gets the last rescue shuttle, and report back.",
+     "reward": 610, "stages": [
+         {"port": "Prospect", "kind": "load", "title": "Gather structural supports",
+          "description": "Buy 4 ore from Prospect for the collapsing tunnels.", "good": "ore", "quantity": 4},
+         {"port": "Cinder", "kind": "deliver_choice", "title": "The miners' last lift",
+          "description": "Deliver 4 ore to Cinder and decide which rescue receives priority.",
+          "good": "ore", "quantity": 4, "choices": [
+              {"id": "miners", "label": "Save the trapped miners", "description": "+110 cr, +4 miners; Rin remembers your help",
+               "bonus": 110, "faction": "miners", "reputation": 4, "relationship": 3},
+              {"id": "security", "label": "Secure the station crew", "description": "+170 cr, +3 security; Rin resents the delay",
+               "bonus": 170, "faction": "security", "reputation": 3, "relationship": -2}]},
+         {"port": "Haven", "kind": "finish", "title": "File the rescue report",
+          "description": "Return to Haven to record the rescue and collect your fee."}]},
+    {"id": "expedition-archive", "title": "The Quiet Archive", "issuer_npc": "lysa-quell",
+     "description": "Dr. Lysa Quell needs a medical courier for an isolated observatory. The archive's discovery could help science—or its neighbors.",
+     "reward": 680, "stages": [
+         {"port": "Aurora", "kind": "load", "title": "Prepare the quarantine kit",
+          "description": "Purchase 3 medicine at Aurora for the observatory crew.", "good": "medicine", "quantity": 3},
+         {"port": "Eidolon", "kind": "deliver_choice", "title": "The observatory's secret",
+          "description": "Deliver the medicine and decide where Quell's findings go.",
+          "good": "medicine", "quantity": 3, "choices": [
+              {"id": "publish", "label": "Publish the research", "description": "+80 cr, +4 scientists; Lysa trusts you",
+               "bonus": 80, "faction": "scientists", "reputation": 4, "relationship": 3},
+              {"id": "share", "label": "Share with the frontier clinics", "description": "+120 cr, +3 diplomats; Lysa loses exclusive access",
+               "bonus": 120, "faction": "diplomats", "reputation": 3, "relationship": -1}]},
+         {"port": "Haven", "kind": "finish", "title": "Present the archive report",
+          "description": "Debrief at Haven and record the fate of the findings."}]},
+    {"id": "expedition-blackwake", "title": "The Blackwake Accord", "issuer_npc": "sable-rook",
+     "description": "Sable Rook has intercepted a failing fuel shipment near Drift. You can negotiate with the raiders—or bring the patrols in.",
+     "reward": 590, "stages": [
+         {"port": "Kepler", "kind": "load", "title": "Acquire emergency fuel",
+          "description": "Purchase 4 fuel units at Kepler to stabilize the stricken convoy.", "good": "fuel", "quantity": 4},
+         {"port": "Drift", "kind": "deliver_choice", "title": "A dangerous bargain",
+          "description": "Deliver the fuel and decide whose terms the convoy will follow.",
+          "good": "fuel", "quantity": 4, "choices": [
+              {"id": "accord", "label": "Strike a truce with Rook", "description": "+120 cr, +4 pirates; Sable becomes an ally",
+               "bonus": 120, "faction": "pirates", "reputation": 4, "relationship": 3},
+              {"id": "patrol", "label": "Call in the patrols", "description": "+180 cr, +4 security; Sable becomes a rival",
+               "bonus": 180, "faction": "security", "reputation": 4, "relationship": -3}]},
+         {"port": "Haven", "kind": "finish", "title": "Register the accord",
+          "description": "Return to Haven with the outcome of the blockade."}]},
+)
+NPC_CAPTAINS = (
+    {"id": "mara-venn", "name": "Mara Venn", "vessel": "Blue Lantern", "faction": "traders",
+     "good": "food", "route": ["Meridian", "Bastion"], "quantity": 4, "phase": 0,
+     "description": "Independent provisioner competing for the fortress station's supply contracts."},
+    {"id": "rin-kestrel", "name": "Rin Kestrel", "vessel": "Copper Finch", "faction": "miners",
+     "good": "ore", "route": ["Prospect", "Cinder"], "quantity": 3, "phase": 2,
+     "description": "A mining captain with old debts at the Cinder foundry."},
+    {"id": "lysa-quell", "name": "Dr. Lysa Quell", "vessel": "Morning Glass", "faction": "scientists",
+     "good": "medicine", "route": ["Aurora", "Eidolon"], "quantity": 2, "phase": 4,
+     "description": "A research courier carrying fragile samples to the frontier observatory."},
+    {"id": "sable-rook", "name": "Sable Rook", "vessel": "Blackwake", "faction": "pirates",
+     "good": "fuel", "route": ["Kepler", "Drift"], "quantity": 3, "phase": 1,
+     "description": "A contraband runner whose deals shift fuel prices along the salvage corridor."},
 )
 HAVEN_FACILITIES = {
     "repair_bay": {"name": "Repair bay", "max_level": 3, "credits": 240,
@@ -187,6 +244,8 @@ class Game:
     radio_bands_seen: list[str] = field(default_factory=list)
     haven_facilities: dict[str, int] = field(default_factory=dict)
     encounters: dict = field(default_factory=dict)
+    npc_captains: dict = field(default_factory=dict)
+    npc_shipments: list[dict] = field(default_factory=list)
 
     def __post_init__(self):
         if not self.galaxies:
@@ -216,6 +275,12 @@ class Game:
             self.factions.setdefault(faction, 0)
         for facility in HAVEN_FACILITIES:
             self.haven_facilities.setdefault(facility, 0)
+        for template in NPC_CAPTAINS:
+            cycle = (self.tick + template["phase"]) // NPC_INTERVAL
+            self.npc_captains.setdefault(template["id"], {
+                **deepcopy(template), "location": template["route"][cycle % 2],
+                "last_cycle": cycle, "relationship": 0, "runs": 0,
+                "total_delivered": 0})
         if self.active_ship_id not in self.fleet:
             self.active_ship_id = next(iter(self.fleet), "")
         if self.active_ship_id:
@@ -224,10 +289,12 @@ class Game:
             self._replenish_local_jobs()
         self._replenish_vip_jobs()
         self._refresh_sector_events()
-        if not self.expeditions:
-            self.expeditions = {template["id"]: {**deepcopy(template), "status": "offered",
-                "stage": 0, "bonus": 0, "choice": None, "accepted_tick": None}
-                for template in EXPEDITION_TEMPLATES}
+        # New authored expeditions appear in existing saves without resetting
+        # completed or in-progress missions from earlier releases.
+        for template in EXPEDITION_TEMPLATES:
+            self.expeditions.setdefault(template["id"], {
+                **deepcopy(template), "status": "offered", "stage": 0,
+                "bonus": 0, "choice": None, "accepted_tick": None})
         for port in self.visited_ports:
             self._reveal_encounter(port)
         self.observe_markets()
@@ -274,6 +341,42 @@ class Game:
     def active_sector_events(self) -> list[dict]:
         return [event for event in self.sector_events
                 if event["start_tick"] <= self.tick < event["end_tick"]]
+
+    def _advance_npc_captains(self):
+        """Advance named local haulers; stock is transferred, never generated.
+
+        When opening a long-idle save, cap the number of simulated shipments so
+        months of unattended play do not exhaust markets or flood history.
+        Their final positions still follow the deterministic shared tick.
+        """
+        for captain in self.npc_captains.values():
+            route = captain["route"]
+            target_cycle = (self.tick + captain["phase"]) // NPC_INTERVAL
+            current_cycle = captain["last_cycle"]
+            if target_cycle <= current_cycle:
+                continue
+            # Only replay the latest 24 movements after a long absence.
+            start_cycle = max(current_cycle, target_cycle - 24)
+            captain["location"] = route[start_cycle % 2]
+            for cycle in range(start_cycle + 1, target_cycle + 1):
+                origin, destination = captain["location"], route[cycle % 2]
+                origin_stock = self.galaxies["home"]["ports"][origin]["stock"]
+                destination_stock = self.galaxies["home"]["ports"][destination]["stock"]
+                good = captain["good"]
+                quantity = min(captain["quantity"], origin_stock[good],
+                               max(0, 300 - destination_stock[good]))
+                origin_stock[good] -= quantity
+                destination_stock[good] += quantity
+                captain["location"] = destination
+                captain["runs"] += 1
+                captain["total_delivered"] += quantity
+                self.npc_shipments.append({"id": captain["id"] + "-" + str(cycle),
+                    "npc_id": captain["id"], "name": captain["name"],
+                    "tick": cycle * NPC_INTERVAL - captain["phase"],
+                    "origin": origin, "destination": destination,
+                    "good": good, "quantity": quantity})
+            captain["last_cycle"] = target_cycle
+        self.npc_shipments = self.npc_shipments[-24:]
 
     def _reveal_encounter(self, port: str) -> bool:
         if port not in ENCOUNTER_SITES or port in self.encounters:
@@ -414,11 +517,16 @@ class Game:
             reward = mission["reward"] + mission["bonus"] + (100 if punctual else 0)
             choice_stage = next((step for step in mission["stages"]
                                  if step["kind"] == "deliver_choice"), None)
+            chosen = None
             if choice_stage:
                 chosen = next((item for item in choice_stage["choices"]
                                if item["id"] == mission["choice"]), None)
                 if chosen:
                     self.factions[chosen["faction"]] += chosen["reputation"]
+            captain = self.npc_captains.get(mission.get("issuer_npc"))
+            relationship_delta = chosen.get("relationship", 0) if chosen else 0
+            if captain:
+                captain["relationship"] = max(-5, min(5, captain["relationship"] + relationship_delta))
             self.credits += reward
             self.factions["traders"] += 2
             mission["status"] = "completed"
@@ -426,7 +534,10 @@ class Game:
             mission["payout"] = reward
             return {"expedition_id": expedition_id, "title": mission["title"],
                     "stage_title": stage["title"], "completed": True,
-                    "reward": reward, "choice": mission["choice"]}
+                    "reward": reward, "choice": mission["choice"],
+                    "captain": captain["name"] if captain else None,
+                    "relationship_delta": relationship_delta if captain else 0,
+                    "relationship": captain["relationship"] if captain else None}
         else:
             raise GameError("unsupported expedition step")
         mission["stage"] += 1
@@ -800,6 +911,12 @@ class Game:
         if action == "buy" and good in ("ore", "medicine"):
             faction = "miners" if good == "ore" else "scientists"
             multiplier -= min(8, self.factions.get(faction, 0) // 2)
+        # A recurring captain offers a modest local deal (or surcharge) on
+        # their own commodity, depending on your completed expedition choice.
+        if action == "buy":
+            for captain in self.npc_captains.values():
+                if captain["location"] == port and captain["good"] == good:
+                    multiplier -= 2 * captain["relationship"]
         return max(1, midpoint * multiplier // 100)
 
     def _check_port_good(self, port: str, good: str) -> None:
@@ -1096,6 +1213,7 @@ class Game:
                         port["stock"][good] + port["production"][good] -
                         port["consumption"][good]))
             self._all_arrivals()
+            self._advance_npc_captains()
             self._refresh_sector_events()
         self._replenish_local_jobs()
         self.observe_markets()
@@ -1125,6 +1243,7 @@ class Game:
                     port["stock"][good] = max(0, min(300, port["stock"][good] + elapsed * delta))
             self.tick += elapsed
             self._all_arrivals()
+            self._advance_npc_captains()
             self.clock_epoch = epoch
             self._refresh_sector_events()
             self._replenish_local_jobs()

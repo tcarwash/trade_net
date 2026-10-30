@@ -122,6 +122,16 @@ class BrowserUIContractTests(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertIn(marker, html)
 
+    def test_recurring_npc_captains_have_local_map_and_expedition_affordances(self):
+        html = self.browser_html()
+        for marker in ("function renderNpcTraffic(){", "npcTraffic", "npc-board",
+                       "npc-diamond", "npc-target", "state.game.npc_captains",
+                       "g.npc_shipments", "mission.issuer_npc", "◇ LOCAL ACTIVITY",
+                       "renderHaven();renderNpcTraffic();renderExchange()",
+                       "captain.relationship>0?'FRIENDLY PRICE'"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, html)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -67,6 +67,9 @@ dispatch contract without Data2G, and expired effects are removed.
 
 - [x] First two authored three-leg expeditions: **The Long Night** (medical
       relief) and **Echoes of Eidolon** (relay restoration or salvage).
+- [x] Three more branching three-leg faction expeditions: **Embers Under
+      Cinder** (miners versus security), **The Quiet Archive** (science
+      versus diplomacy), and **The Blackwake Accord** (pirates versus patrols).
 - [x] Accept at Haven, secure actual purchased cargo, deliver it, make a
       consequential faction choice, and return to Haven for payout.
 - [x] Saved progress, command replay protection, voluntary abandonment with
@@ -84,6 +87,7 @@ dispatch contract without Data2G, and expired effects are removed.
       event chains (the first nine port-specific choices are implemented).
 - [ ] Add chain templates: medical convoy, missing ship, rare-material hunt,
       diplomatic escort, investigation, supply rescue and urgent relay.
+      (The first rescue and investigation storylines are playable.)
 - [x] Show a compact mission journal with map waypoints and step progress.
 - [ ] Avoid hard failure traps: players may decline, abandon, or recover from
       deadlines, ship loss and unavailable stock.
@@ -126,10 +130,21 @@ not just a discovery payout.
 
 ## Phase 5 — NPC captains and factions
 
-- [ ] Recurring traders, rivals, rescuees and pirates with stable identities.
-- [ ] Competing NPC shipments that affect local stock and event completion.
-- [ ] Reputation opens or closes markets, dialogue and quest paths.
-- [ ] Two authored faction arcs with branching outcomes and persistent state.
+- [x] Four recurring named captains with stable ships, trade specialties,
+      deterministic routes and persistent relationship scores.
+- [x] NPCs physically transfer bounded commodity quantities between local
+      starports every six ticks; those changes affect real market pricing,
+      while never touching radio contacts or issuing Data2G frames.
+- [x] Three authored captain-specific faction expeditions with branching
+      outcomes; choices persist and alter both standing and the captain's
+      personal relationship toward the player.
+- [x] Friendly captains offer a limited local buying discount on their
+      commodity; hostile captains charge a surcharge at their current port.
+- [x] Local map diamonds, traffic ticker, captain cards and contract-giver
+      attribution help players plan around these moving opportunities.
+- [ ] NPCs compete for specific contracts and can change incident outcomes.
+- [ ] Persistent dialogue, encounter callbacks, more rescuees and faction
+      quest chains with access to special markets/equipment.
 
 **Done when:** players recognize NPCs and see consequences of helping or
 antagonizing them in subsequent encounters.
@@ -210,7 +225,8 @@ intentional, legible operator action.
   offline return with no dead ends.
 
 The current solo vertical slice includes incidents, multi-stage expeditions,
-one-time dockside encounters, and three upgradable Haven facilities. Its costs
-and rewards are entirely local and persist with the saved game. Broader NPC
-factions, multi-hop freight custody and simulator radio contacts remain future
-milestones, not implied by the presence of a reported link.
+one-time dockside encounters, three upgradable Haven facilities and recurring
+local NPC haulers. Their shipments and relationship-dependent market offers
+remain entirely inside the saved game. Broader faction dialogue, multi-hop
+freight custody and simulator radio contacts remain future milestones, not
+implied by the presence of a reported link.

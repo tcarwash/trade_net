@@ -1,6 +1,6 @@
 # Direct Data2G integration plan
 
-Trade Net will integrate directly with **Data2G**, not route through radio-arcade. This is the intended adapter contract; no live RF adapter is implemented yet.
+Trade Net integrates directly with **Data2G**, not through radio-arcade. The initial `tradenet.data2g` command/KISS harness supports receive-only probing and manually authorized single-frame sends; it is not yet wired to the autonomous game mail queue. See [on-air test checklist](ON-AIR-TESTING.md).
 
 Data2G supports both connected hybrid-ARQ sessions and non-connected broadcast groups through its extended host/KISS interfaces, and offers narrowband (500 Hz) through wide (2400 Hz) operation. Consult the actual installed Data2G host's capabilities at runtime. Source: [Data2G README](https://github.com/arodland/Data2G#readme) and [architecture documentation](https://github.com/arodland/Data2G/blob/master/docs/ARCHITECTURE.md).
 
@@ -18,9 +18,9 @@ The simulator currently models the difference as a per-logical-window frame budg
 
 ## Suggested integration layers
 
-1. Start the existing Data2G host via its supported command interface or attach to a separately running host. Never assume internal Python APIs are stable.
+1. Attach to a separately running Data2G host. The initial harness does not start or configure the radio itself. Never assume internal Python APIs are stable.
 2. Negotiate host capabilities and list available supported modes/bandwidths.
-3. Expose an operator-controlled queue interface: `send_frame`, `receive_frame`, `cancel`, `capabilities`, `connection_status`, with no automatic PTT unless enabled.
+3. Build out the operator-controlled queue interface after validating the implemented single-frame `send_once`, `receive`, `modes` and `open_group` calls against a live host. Add `cancel`, `connection_status`, and explicit transmit queue permissions later.
 4. Connected ARQ is the first choice for addressed trade/receipt exchanges; non-connected groups can carry compact market bulletins and peer discovery if appropriate. Avoid double-retransmitting at both Data2G ARQ and application levels.
 5. Keep Trade Net's application message IDs, hashes, TTL, custody, and settlement receipts even if Data2G provides link-level delivery.
 6. Add on-air station ID, transmit limits, payload inspection and bandplan/operating safeguards before real use.

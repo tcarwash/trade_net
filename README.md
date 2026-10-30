@@ -69,6 +69,12 @@ For a more realistic asynchronous demonstration, click **Reserve both sides**, *
 
 A conservative direct Data2G command/KISS adapter is available for **receive-only capability probing and explicitly approved single-frame transmissions**. It does not automatically send game traffic, relay mail, or claim a remote receipt. Start with [the on-air test checklist](docs/ON-AIR-TESTING.md). Useful payload bundling is described there; synthetic padding has been removed from contract and trade messages.
 
+### Freight weight classes and UTC ticks
+
+Async exchange offers three information loads: **light** (bare transaction), **medium** (second-hop ore richness hint), and **heavy** (second-hop market prices). Medium/heavy data must come from an existing, provenance-labeled report; the demo seeds a simulated report. No transmission gets filler bytes to reach a target size.
+
+In the browser, all galaxies advance their economy on the same **five-minute UTC boundaries**, including deterministic catch-up after being offline. Refreshing the page or selecting **Sync UTC clock** displays the current epoch. The separate radio-window simulator remains manual for controlled loss experiments. See [traffic classes and time synchronization](docs/TRAFFIC-CLASSES-AND-TIME.md).
+
 ## Design guardrails
 
 Local-first; explicitly permissioned transmissions; inspectable/unobscured game messages; no real-money economy; no reward for raw spam traffic; duplicate-safe transactions; bounded packet/airtime budgets; versioned, forwards-compatible messages; honest separation of measured and reported data.

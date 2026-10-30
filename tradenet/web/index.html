@@ -41,6 +41,7 @@ function shipGlyph(canvas,x,y,label,from=null){
   canvas.appendChild(group);
 }
 function drawShipOverlay(canvas,positions){
+  renderFleetManager();
   let g=state.game,here=positions['NPC:'+g.location];
   if(here){
     let destination=g.ship.destination,there=destination&&positions['NPC:'+destination];
@@ -60,6 +61,15 @@ function drawShipOverlay(canvas,positions){
       el('transportStatus').textContent=`Your ship is docked at ${g.location}`;
     }
   }
+  Object.entries(g.fleet||{}).forEach(([id,ship],index)=>{
+    if(id===g.active_ship_id)return;
+    let port=positions['NPC:'+ship.location];
+    if(!port)return;
+    let target=ship.destination&&positions['NPC:'+ship.destination];
+    let x=target?(port.x+target.x)/2:port.x+17+index*5;
+    let y=target?(port.y+target.y)/2:port.y-15;
+    shipGlyph(canvas,x,y,`${ship.name} · ${id}`);
+  });
   // Draw the current radio hop with a ship along the link; retries/loss delay its progress.
   let messages=Object.values(state.mail.messages).filter(m=>m.type==='data'&&!['delivered','acknowledged','expired'].includes(m.status));
   let message=messages.find(m=>m.status==='transmitting')||messages[0];
@@ -88,13 +98,57 @@ function drawShipOverlay(canvas,positions){
   shipGlyph(canvas,x,y,`${Math.round(fraction*100)}% · ${message.id}`);
   el('transportStatus').textContent+=` · Radio freight ${endpoints.join(' → ')}: ${Math.round(fraction*100)}% (${message.frames_lost} frames lost)`;
 }
+function renderFleetManager(){
+  let g=state.game,holder=el('fleetManager');
+  if(!holder){
+    holder=document.createElement('div');holder.id='fleetManager';holder.style.marginTop='14px';
+    el('fleetForm').before(holder);
+    holder.innerHTML='<label>Selected ship<select id="shipPicker"></select></label><div class="row" style="margin-top:8px"><select id="shipClass" aria-label="Ship class"><option value="0">Scout · 350 cr</option><option value="1">Courier · 900 cr</option><option value="2">Express · 1800 cr</option></select><button id="purchaseShip" type="button">Purchase ship</button></div><div style="margin-top:8px"><button id="upgradeShip" class="secondary" type="button">Upgrade selected ship class</button></div><div style="margin-top:8px"><button id="hardMode" class="secondary" type="button">Enable hard mode (+15% sell prices)</button></div>';
+    el('shipPicker').addEventListener('change',e=>command('select_ship',{ship_id:e.target.value}));
+    el('purchaseShip').addEventListener('click',()=>command('purchase_ship',{tier:Number(el('shipClass').value)}));
+    el('upgradeShip').addEventListener('click',()=>command('buy_ship'));
+    el('hardMode').addEventListener('click',()=>{if(confirm('Hard mode is permanent for this save. Ships are lost at 0 condition. Enable?'))command('set_hard_mode',{enabled:true})});
+  }
+  let picker=el('shipPicker'),prior=g.active_ship_id;
+  picker.replaceChildren();
+  for(let [id,ship] of Object.entries(g.fleet||{})){
+    let opt=document.createElement('option');opt.value=id;opt.textContent=`${ship.name} (${id}) · ${ship.location} · ${ship.condition}%`;
+    picker.appendChild(opt);
+  }
+  picker.value=prior;picker.disabled=!prior;
+  el('upgradeShip').disabled=!prior||g.ship.modem_tier>=2;
+  el('hardMode').disabled=g.hard_mode;
+  el('hardMode').textContent=g.hard_mode?'Hard mode active · +15% sell prices':'Enable hard mode (+15% sell prices)';
+  // Pick a specific ship for radio freight. Its tier determines transfer capacity.
+  let exchange=el('exchangeForm'),shipSelect=el('missionShip');
+  if(!shipSelect){
+    let label=document.createElement('label');label.textContent='Radio mission ship';
+    shipSelect=document.createElement('select');shipSelect.id='missionShip';label.appendChild(shipSelect);
+    exchange.prepend(label);
+    let buy=document.createElement('button');buy.id='buyRadioShip';buy.type='button';buy.className='secondary';buy.textContent='Purchase radio ship (Scout · 350 cr)';
+    buy.addEventListener('click',()=>api({action:'exchange_purchase_ship',tier:0,id:'radio-ship-'+Date.now()}).catch(e=>log(e.message,true)));
+    exchange.appendChild(buy);
+    let hard=document.createElement('button');hard.id='hardRadio';hard.type='button';hard.className='secondary';hard.textContent='Enable hard mode for radio galaxy';
+    hard.addEventListener('click',()=>{if(confirm('Enable irreversible ship permadeath for the radio galaxy?'))api({action:'exchange_hard_mode',id:'radio-hard-'+Date.now()}).catch(e=>log(e.message,true))});
+    exchange.appendChild(hard);
+  }
+  let seller=Object.values(state.federation.worlds)[0],selected=shipSelect.value;
+  shipSelect.replaceChildren();
+  for(let [id,ship] of Object.entries(seller.fleet||{})){
+    let opt=document.createElement('option');opt.value=id;opt.textContent=`${ship.name} (${id}) · ${ship.condition}% · ${[500,1200,2400][ship.modem_tier]} Hz`;
+    opt.disabled=Boolean(ship.radio_mission||ship.destination||ship.condition<=0);
+    shipSelect.appendChild(opt);
+  }
+  if(selected&&seller.fleet[selected])shipSelect.value=selected;
+  el('hardRadio').disabled=seller.hard_mode;
+}
 function render(){let g=state.game;el('name').textContent=g.name;el('rare').textContent=g.specialization;el('credits').textContent=g.credits.toLocaleString()+' cr';el('clockDisplay').textContent=`UTC epoch ${state.clock.epoch} · next tick ${new Date(state.clock.next_boundary_utc*1000).toISOString().slice(11,16)}Z`;el('ship').textContent=`At ${g.location} · Tick ${g.tick} · Cargo ${Object.values(g.cargo).reduce((a,b)=>a+b,0)}/${g.ship.capacity}`;el('market').replaceChildren();state.goods.forEach(good=>{let row=document.createElement('tr');[good,g.ports[g.location].stock[good],state.prices[g.location][good].buy,state.prices[g.location][good].sell,g.cargo[good]].forEach(v=>{let cell=document.createElement('td');cell.textContent=v;row.appendChild(cell)});el('market').appendChild(row)});el('goods').innerHTML=state.goods.map(x=>`<option>${x}</option>`).join('');el('destination').innerHTML=Object.keys(g.ports).map(x=>`<option ${x===g.location?'disabled':''}>${x}</option>`).join('');el('fleet').innerHTML=`<div class="stat"><small>Fuel</small><b>${g.ship.fuel}/${g.ship.max_fuel}</b></div><div class="stat"><small>Condition</small><b>${g.ship.condition}%</b></div><div class="stat"><small>Capacity</small><b>${g.ship.capacity}</b></div><div class="stat"><small>Travel</small><b style="font-size:14px">${g.ship.destination||'Docked'}</b></div>`;map();renderContracts();renderExchange()}
 function renderExchange(){let f=state.federation,t=Object.values(f.trades)[0],container=el('exchange');if(!t){container.textContent='No trade offered';return}container.replaceChildren();for(let [id,w] of Object.entries(f.worlds)){let item=document.createElement('div');item.className='stat';let heading=document.createElement('b');heading.textContent=id+' · '+w.specialization+' rich';let p=document.createElement('p');p.className='muted';p.textContent=`Credits ${w.credits} · ${t.good} cargo ${w.cargo[t.good]} · ${id===t.seller?'seller':'buyer'} · modem tier ${w.ship.modem_tier||0}`;item.append(heading,p);container.append(item)}let detail=document.createElement('div');detail.className='stat';detail.style.gridColumn='1/-1';detail.textContent=`${t.id}: ${t.quantity} ${t.good} for ${t.quantity*t.unit_price} credits · ${t.status} · custody ${t.custody||'none'} · attempts ${t.attempts} · receipt ${t.receipt?'received':'pending'}`;container.append(detail);let msg=state.mail.messages['trade:'+t.id],ack=state.mail.messages['ack:trade:'+t.id];el('mailStatus').textContent=`Mail tick ${state.mail.tick} · ${msg?'Outbound '+msg.status+' at '+msg.route[msg.hop]+' · '+msg.frames_attempted+' frames, '+msg.frames_lost+' lost · '+msg.bandwidth_hz+' Hz tier':'No queued parcel'} · ${ack?'ACK '+ack.status:'no ACK'} · destination ${state.mail.stations[t.buyer]?.online?'online':'offline'}`}
 function renderContracts(){let board=el('contracts');board.replaceChildren();for(let c of Object.values(state.game.contracts||{})){let card=document.createElement('div');card.className='stat';card.style.display='grid';card.style.gap='8px';let title=document.createElement('b');title.style.fontSize='15px';title.textContent=`${c.quantity} ${c.good} → ${c.destination}`;card.appendChild(title);let detail=document.createElement('small');detail.textContent=`${c.reward} cr · ${c.payload_bytes} bytes · due tick ${c.deadline} · ${c.status} · custody ${c.custody||'none'}`;card.appendChild(detail);let button=document.createElement('button');button.textContent=c.status==='offered'?'Reserve loaded cargo':c.status==='reserved'?'Dispatch parcel':c.status==='in_transit'?'Forward / retry':'Completed';button.disabled=!['offered','reserved','in_transit'].includes(c.status);button.addEventListener('click',()=>{if(c.status==='offered')command('accept_contract',{contract_id:c.id});else{let direct=[state.network.local_id,c.destination];let route=(prompt('Courier path (comma-separated callsigns)',direct.join(','))||'').split(',').map(s=>s.trim()).filter(Boolean);if(!route.length)return;let loss=Number(prompt('Simulated frame loss (0–1)','0.15'));api({action:'dispatch_contract',contract_id:c.id,route:c.status==='reserved'?route:undefined,loss}).catch(e=>log(e.message,true))}});card.appendChild(button);board.appendChild(card)}}
 el('tradeForm').addEventListener('submit',e=>{e.preventDefault();let f=new FormData(e.target),action=e.submitter.value;command(action,{good:f.get('good'),amount:Number(f.get('amount'))})});
 el('fleetForm').addEventListener('submit',e=>{e.preventDefault();let a=e.submitter.value,args=a==='travel'?{destination:el('destination').value}:a==='wait'?{ticks:1}:a==='refuel'?{amount:5}:{};command(a,args)});
 el('sendForm').addEventListener('submit',e=>{e.preventDefault();let f=new FormData(e.target),neighbors=String(f.get('neighbors')).split(',').map(x=>x.trim()).filter(Boolean).map(peer=>({peer,goodput_bps:35}));api({action:'simulate',peer:String(f.get('peer')).trim().toUpperCase(),bytes:Number(f.get('bytes')),loss:Number(f.get('loss')),neighbors}).catch(e=>log(e.message,true))});
-el('exchangeForm').addEventListener('submit',e=>{e.preventDefault();let f=new FormData(e.target),t=Object.values(state.federation.trades)[0],relay=String(f.get('relay')).trim().toUpperCase(),route=relay?[t.seller,relay,t.buyer]:[t.seller,t.buyer];let body={action:e.submitter.value,trade_id:t.id,loss:Number(f.get('loss')),weight:String(f.get('weight')),id:'modem-'+Date.now()};if(t.status==='reserved')body.route=route;api(body).catch(e=>log(e.message,true))});
+el('exchangeForm').addEventListener('submit',e=>{e.preventDefault();let f=new FormData(e.target),t=Object.values(state.federation.trades)[0],relay=String(f.get('relay')).trim().toUpperCase(),route=relay?[t.seller,relay,t.buyer]:[t.seller,t.buyer];let body={action:e.submitter.value,trade_id:t.id,loss:Number(f.get('loss')),weight:String(f.get('weight')),ship_id:el('missionShip').value,id:'modem-'+Date.now()};if(t.status==='reserved')body.route=route;api(body).catch(e=>log(e.message,true))});
 el('toggleRemote').addEventListener('click',()=>{let t=Object.values(state.federation.trades)[0],online=state.mail.stations[t.buyer]?.online;api({action:'mail_station',station:t.buyer,online:!online}).catch(e=>log(e.message,true))});
 // The debug panel keeps the simulator and protocol test controls accessible without
 // turning them into primary gameplay actions. This setting is session-local.

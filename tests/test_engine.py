@@ -83,6 +83,20 @@ class EconomyTests(unittest.TestCase):
         fast_eta = fast.command("fast", "travel", destination="Meridian")["arrival_tick"]
         self.assertLess(fast_eta, slow_eta)
 
+    def test_real_time_utc_epoch_catchup(self):
+        a, b = Game.new(11), Game.new(11)
+        base = 1_800_000_000  # exact five-minute UTC boundary
+        self.assertEqual(a.sync_utc(base)["advanced"], 0)
+        b.sync_utc(base)
+        for _ in range(12):
+            b.command(f"manual-{_}", "wait", ticks=1)
+        result = a.sync_utc(base + 12 * 300)
+        self.assertEqual(result["advanced"], 12)
+        self.assertEqual(a.tick, b.tick)
+        self.assertEqual({p: x["stock"] for p, x in a.ports.items()},
+                         {p: x["stock"] for p, x in b.ports.items()})
+        self.assertEqual(a.sync_utc(base + 11 * 300)["advanced"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,9 @@
 # Trade Net — Implementation Roadmap
 
+For the current gameplay-first plan, including sector incidents, mission
+chains, Haven upgrades, exploration, NPC captains, and **◇ simulated / ◉ real**
+radio presentation, see the [single-player roadmap](SINGLE-PLAYER-ROADMAP.md).
+
 ## Milestone 0: Working repository and decisions
 
 - [x] Establish vision and separation of game/radio layers.

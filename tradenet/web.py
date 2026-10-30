@@ -805,6 +805,10 @@ class App:
                 "navigation": self._navigation(),
                 "ship_classes": deepcopy(list(getattr(modems, "SHIPS", ()))),
                 "story_objective": self.game.story_objective(),
+                # Fictional sector signals are a local gameplay projection;
+                # never pass these through the Data2G send/receive path.
+                "dispatch_signals": [{**deepcopy(event), "transport": "local_simulation",
+                    "transmit": False} for event in self.game.active_sector_events()],
                 "modem_catalog": deepcopy(self.modem_catalog),
                 "radio_transmissions": [{**{key: deepcopy(value) for key, value in job.items()
                                             if key not in ("payload_hex", "repair_indices")},

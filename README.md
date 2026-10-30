@@ -35,6 +35,8 @@ Space isn't empty: the asteroid field circles the central sector, blocking direc
 
 The **Contracts** board also offers VIP passenger missions: navigate to the pickup port, board a diplomat, medic, survey captain, or trade delegate on a specific ship, and reach the requested destination for a bonus. Each ship carries at most one VIP; you can cancel a passenger mission without destroying your ship. Freight, VIP transport, exploration, and radio logistics all share the same fleet and credits.
 
+**Frontier Dispatch** now adds a deterministic sector incident every eight economy ticks. Each incident affects the actual buy/sell prices of one commodity at a starport and issues a time-limited local relief or supply contract. Follow the news bulletin or the ◇ dispatch signal in Comms to find the job. These fictional dispatch signals are local game activity only; **◉** marks real radio contacts and their operator-controlled Data2G actions. The two ledgers are separate, so browsing or fulfilling a dispatch job never transmits RF.
+
 ### Frontier campaign, fog of war, and outfitting
 
 - **Fog of war:** unexplored ports appear as unidentified signals, with their name and economic role concealed until visited. A ship-mounted scanner can identify distant ports and preview corridor hazards in advance. Known market prices are still only the quotes you actually observed while docked.
@@ -78,6 +80,7 @@ The long-term goal is for actual on-air transfer success, throughput, and networ
 |---|---|
 | [Game design](docs/GAME-DESIGN.md) | World, economy, and progression ideas |
 | [Roadmap](docs/ROADMAP.md) | Implemented milestones and next steps |
+| [Single-player roadmap](docs/SINGLE-PLAYER-ROADMAP.md) | Living galaxy, incident missions, Haven upgrades, NPCs, and radio/simulator boundaries |
 | [Protocol](docs/PROTOCOL.md) | Message, receipt, and routing design |
 | [Traffic classes & time](docs/TRAFFIC-CLASSES-AND-TIME.md) | Useful payload classes and UTC epochs |
 | [Data2G integration](docs/DATA2G-INTEGRATION.md) | Planned direct modem integration |

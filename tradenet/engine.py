@@ -22,6 +22,21 @@ PORT_ROLES = ("Home hub", "Refinery", "Research enclave", "Mining colony",
               "Trade exchange", "Industrial furnace", "Medical sanctuary",
               "Salvage outpost", "Fortress station", "Frontier observatory")
 EQUIPMENT = {"scanner": 220, "shield": 350, "navigator": 420, "defense": 380}
+INCIDENT_INTERVAL = 8  # Shared economy ticks; no wall-clock-only randomness.
+SECTOR_INCIDENTS = (
+    ("Medical emergency", "Aurora", "Vesper", "medicine",
+     "A clinic supply convoy is overdue. Medical shipments are urgently needed."),
+    ("Foundry shutdown", "Cinder", "Prospect", "ore",
+     "An industrial failure has halted local ore processing. Repairs need raw materials."),
+    ("Station rationing", "Bastion", "Haven", "food",
+     "Security crews have imposed rationing after a supply ship missed its arrival."),
+    ("Fuel shortage", "Drift", "Kepler", "fuel",
+     "Salvage traffic has drained the depot's fuel reserves."),
+    ("Research rush", "Vesper", "Aurora", "medicine",
+     "A breakthrough has drawn researchers and exhausted the laboratory's supplies."),
+    ("Trade festival", "Meridian", "Haven", "food",
+     "The exchange is hosting a major festival and buying provisions at a premium."),
+)
 
 
 class GameError(ValueError):
@@ -62,6 +77,7 @@ class Game:
     factions: dict = field(default_factory=dict)
     story_stage: int = 0
     discoveries: dict = field(default_factory=dict)
+    sector_events: list[dict] = field(default_factory=list)
 
     def __post_init__(self):
         if not self.galaxies:
@@ -96,7 +112,51 @@ class Game:
         if not self.local_jobs:
             self._replenish_local_jobs()
         self._replenish_vip_jobs()
+        self._refresh_sector_events()
         self.observe_markets()
+
+    def _refresh_sector_events(self):
+        """One seeded, actionable bulletin per economy cycle, with no RF side effects.
+
+        Catch-up creates only the current incident; old unseen incidents are not
+        backfilled as dozens of expired quests when a save is reopened.
+        """
+        cycle = self.tick // INCIDENT_INTERVAL
+        if any(event["cycle"] == cycle for event in self.sector_events):
+            return
+        title, port, origin, good, description = SECTOR_INCIDENTS[(self.seed + cycle) % len(SECTOR_INCIDENTS)]
+        quantity = 3 + (self.seed + cycle) % 3
+        event_id = f"dispatch-{cycle:05d}"
+        deadline = (cycle + 1) * INCIDENT_INTERVAL - 1
+        reward = BASE_PRICE[good] * quantity * 3
+        event = {"id": event_id, "cycle": cycle, "title": title,
+                 "port": port, "origin": origin, "good": good,
+                 "description": description, "start_tick": cycle * INCIDENT_INTERVAL,
+                 "end_tick": deadline + 1, "quantity": quantity,
+                 "reward": reward, "job_id": event_id,
+                 "source": "simulated"}
+        self.sector_events.append(event)
+        self.sector_events = self.sector_events[-12:]
+        # Local dispatch contracts use the ordinary cargo, deadline and payout
+        # pathway. They never enter the Data2G radio contract ledger.
+        if event_id not in self.local_jobs:
+            self.local_jobs[event_id] = {"id": event_id, "origin": origin,
+                "destination": port, "good": good, "quantity": quantity,
+                "reward": reward, "status": "open", "deadline": deadline,
+                "kind": "dispatch", "event_id": event_id}
+        # Dispatch displaces a routine posting rather than expanding the
+        # board indefinitely. Keep the normal three-job choice budget.
+        open_jobs = [job for job in self.local_jobs.values() if job["status"] == "open"]
+        for job in reversed(open_jobs):
+            if len(open_jobs) <= 3:
+                break
+            if job.get("kind") != "dispatch":
+                job["status"] = "superseded"
+                open_jobs.remove(job)
+
+    def active_sector_events(self) -> list[dict]:
+        return [event for event in self.sector_events
+                if event["start_tick"] <= self.tick < event["end_tick"]]
 
     def _replenish_vip_jobs(self):
         for job in self.vip_jobs.values():
@@ -441,6 +501,9 @@ class Game:
         # buying and immediately reselling for a profit in the same port.
         pressure = max(50, min(200, 150 - stock))
         midpoint = max(1, BASE_PRICE[good] * pressure // 100)
+        if any(event["port"] == port and event["good"] == good
+               for event in self.active_sector_events()):
+            midpoint = midpoint * 150 // 100
         multiplier = 110 if action == "buy" else ((104 if self.hard_mode else 90) + min(10, self.factions.get("traders", 0) // 2))
         if action == "buy" and good in ("ore", "medicine"):
             faction = "miners" if good == "ore" else "scientists"
@@ -729,7 +792,9 @@ class Game:
                         port["stock"][good] + port["production"][good] -
                         port["consumption"][good]))
             self._all_arrivals()
+            self._refresh_sector_events()
         self._replenish_local_jobs()
+        self.observe_markets()
         return {"tick": self.tick, "location": self.location,
                 "in_transit": self.ship["destination"] is not None}
 
@@ -757,6 +822,7 @@ class Game:
             self.tick += elapsed
             self._all_arrivals()
             self.clock_epoch = epoch
+            self._refresh_sector_events()
             self._replenish_local_jobs()
             self.observe_markets()
         return {"epoch": self.clock_epoch, "advanced": elapsed, "tick": self.tick}

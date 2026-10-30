@@ -74,6 +74,8 @@ dialog.moment-dialog::backdrop{background:#030811ce;backdrop-filter:blur(8px)}.m
 @keyframes moment-rise{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:none}}
 @media(max-width:600px){.moment-shell{padding:24px 18px}.moment-art{height:135px}.moment-dialog h2{font-size:25px}.moment-footer{align-items:stretch;flex-direction:column}.moment-footer button{width:100%}.onboarding .guide-controls{width:100%}.onboarding .guide-controls button{flex:1}.onboarding .guide-copy{width:100%}}
 @media(prefers-reduced-motion:reduce){.moment-art .art-orbit,.moment-art .art-star,.moment-dialog[open]{animation:none!important}}
+.sector-news{display:flex;align-items:center;gap:16px;padding:13px 16px;border:1px solid #4e665b;border-left:4px solid #d7b774;border-radius:10px;background:linear-gradient(100deg,#2b3029,#102332);margin-bottom:16px}.sector-news[hidden]{display:none}.signal-mark{display:inline-grid;place-items:center;flex:0 0 38px;width:38px;height:38px;border:1px solid #7a7c60;border-radius:10px;color:#f4d199;font:25px var(--mono);background:#41362465}.sector-news .news-body{min-width:0;flex:1}.sector-news h3{font-size:14px;margin:2px 0 3px}.sector-news p{font-size:11px;color:#b8ccce;margin:0}.sector-news button{min-height:38px;font-size:11px}.signal-legend{display:flex;flex-wrap:wrap;gap:15px;margin:4px 0 16px;color:#adc7d4;font:11px var(--mono)}.signal-legend span:first-child{color:#f0c688}.signal-legend span:last-child{color:#8bdddb}.dispatch-signal{border:1px solid #485a58;background:linear-gradient(135deg,#292d28,#112432);border-radius:10px;padding:14px;margin-bottom:10px}.dispatch-signal .tag{font:11px var(--mono);color:#e4be82}.dispatch-signal h3{margin:6px 0;font-size:15px}.dispatch-signal p{font-size:12px;color:#adc3d0}.dispatch-signal button{min-height:38px}.contract-card[data-kind=dispatch]{border-top-color:#e5b976}
+@media(max-width:600px){.sector-news{flex-wrap:wrap;gap:10px}.sector-news .signal-mark{width:32px;height:32px;flex-basis:32px}.sector-news button{width:100%}}
 </style></head><body>
 <a href="#command" class="skip-link">Skip to command deck</a>
 <header><a class="brand" href="#command" aria-label="Trade Net command"><div class="brand-mark" aria-hidden="true"><span>✧</span></div><div><h1>TRADE NET</h1><small>Frontier command</small></div></a><div class="header-tools"><span id="modemBadge" class="pill">MODEM · CHECKING</span><span id="saveIndicator" class="save-indicator" role="status">Connecting…</span><span id="clockDisplay">Connecting to economy…</span><button id="debugToggle" class="secondary" type="button" aria-pressed="false">Debug: Off</button></div></header>
@@ -84,6 +86,7 @@ dialog.moment-dialog::backdrop{background:#030811ce;backdrop-filter:blur(8px)}.m
 <section class="briefing full-width"><div><span class="eyebrow">Captain's command deck</span><h2>Sector overview</h2><p>Chart your next move. The frontier is open for business.</p></div><span class="sector-badge" id="captainStatus">ESTABLISHING UPLINK</span></section>
 <section class="objective-brief full-width" id="objectiveBrief" aria-label="Recommended next action"><div class="objective-symbol" aria-hidden="true">✦</div><div class="objective-copy"><span class="eyebrow" id="objectiveEyebrow">YOUR NEXT MISSION</span><h2 id="objectiveTitle">Preparing your command deck</h2><p id="objectiveDescription">Loading your current objectives and ship status…</p></div><button id="objectiveAction" type="button" class="secondary">View missions</button></section>
 <section class="onboarding full-width" id="guide" aria-label="Guided first trade run"><div class="guide-copy"><div class="guide-progress" id="guideProgress">NEW CAPTAIN</div><strong>Your first trade run</strong><p id="guideText">Learn your route from contract to cargo to payout.</p></div><div class="guide-controls"><button id="guideNext" type="button">Start guided run</button><button id="dismissGuide" class="secondary" type="button">Not now</button></div></section>
+<section class="sector-news full-width" id="sectorNews" aria-label="Sector bulletin" hidden><span class="signal-mark" aria-hidden="true">◇</span><div class="news-body"><span class="eyebrow">FRONTIER DISPATCH · SECTOR NEWS</span><h3 id="newsTitle"></h3><p id="newsDescription"></p></div><button type="button" id="newsAction" class="secondary">View contract</button></section>
 <section class="panel" id="mapPanel" aria-labelledby="mapHeading"><div class="panel-heading"><div><span class="eyebrow">Navigation / local sector</span><h2 id="mapHeading">Tactical starmap</h2></div><span class="panel-index">01 / NAV</span></div><div class="stats"><div class="stat"><small>Home galaxy</small><b id="name">—</b></div><div class="stat"><small>Abundant resource</small><b id="rare">—</b></div><div class="stat"><small>Available credits</small><b id="credits">—</b></div></div><div class="map"><svg id="galaxy" viewBox="0 0 700 460" role="group" aria-label="Discovered starports and radio links"></svg></div><div class="map-legend" aria-label="Map legend"><span>Local starports</span><span>Plotted destination</span><span>Verified stations</span></div><div id="transportStatus" class="status-line" aria-live="polite"></div><div id="flightProgress" class="flight-progress" role="progressbar" aria-label="Flight progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden><span></span></div><div id="detail">Select a planet to plot your next trade run.</div><div class="debug-only hint">Solid links: measured goodput · Dashed links: reported, unverified</div></section>
 <section class="panel" id="marketPanel" aria-labelledby="marketHeading"><div class="panel-heading"><div><span class="eyebrow">Commerce / port exchange</span><h2 id="marketHeading">Market & cargo</h2></div><span class="panel-index">02 / MKT</span></div><div id="ship" class="muted"></div><div class="hold-meter" role="meter" aria-label="Cargo hold used" aria-valuemin="0" aria-valuemax="30" aria-valuenow="0"><span id="holdFill"></span></div><table aria-label="Port commodity market"><caption>LIVE PORT PRICES · BEST PREVIOUSLY OBSERVED QUOTES</caption><thead><tr><th scope="col">Commodity</th><th scope="col">Stock</th><th scope="col">Buy</th><th scope="col">Sell</th><th scope="col">Hold</th><th scope="col">Market intel</th></tr></thead><tbody id="market"></tbody></table><form id="tradeForm" style="margin-top:18px"><div class="cols"><label>Commodity<select name="good" id="goods"></select></label><label>Quantity<input name="amount" type="number" value="1" min="1" max="10000" step="1" aria-describedby="tradeQuote"></label></div><div class="quantity-tools"><span id="tradeLimit">Select cargo to trade</span><button id="maxCargo" type="button" class="secondary">Max affordable</button></div><div id="tradeQuote" class="quote hint" aria-live="polite"></div><button id="plotSale" class="secondary" type="button" hidden>Plot best sale route</button><div class="row"><button name="action" value="buy">Buy cargo</button><button name="action" value="sell" class="secondary">Sell cargo</button></div></form></section>
 <section class="panel" id="fleetPanel" aria-labelledby="fleetHeading"><div class="panel-heading"><div><span class="eyebrow">Hangar / flight operations</span><h2 id="fleetHeading">Fleet command</h2></div><span class="panel-index">03 / FLT</span></div><div id="fleet" class="stats"></div><form id="fleetForm" class="fleet-controls"><label>Destination<select id="destination" name="destination" aria-describedby="routeQuote"></select></label><div id="routeQuote" class="quote hint" aria-live="polite"></div><button name="action" value="travel">Dispatch ship</button><div class="row"><button name="action" value="refuel" class="secondary">Refuel +5</button><button name="action" value="repair" class="secondary">Repair hull</button><button name="action" value="upgrade" class="secondary">Expand hold</button></div><div class="row debug-inline"><button name="action" value="sync_clock" class="secondary">Sync UTC clock</button></div></form><p class="hint" style="margin-top:12px">Flights take a few seconds based on ship speed. Dispatch another ship to keep trading while it travels.</p></section>
@@ -93,7 +96,7 @@ dialog.moment-dialog::backdrop{background:#030811ce;backdrop-filter:blur(8px)}.m
 </main><footer><span>TRADE NET / FRONTIER COMMAND</span><span>Data2G operator controlled</span><span id="connectionStatus" role="status">Connecting…</span></footer>
 <script>
 let state=null, counter=0, activeRadioJobId=null, radioReturnTimer=null,lastSavedAt=null,feedbackTimer=null,nextActionView='contracts',nextActionDestination='',nextActionGood='',nextActionCommand=null,nextActionArgs={},currentContractsFilter='all';
-let momentsReady=false,seenJournal=new Set(),priorFlights=new Map(),priorRadio=new Map(),momentQueue=[],activeMoment=null;
+let momentsReady=false,seenJournal=new Set(),priorFlights=new Map(),priorRadio=new Map(),priorDispatch=new Set(),momentQueue=[],activeMoment=null;
 let guideStep=Number(sessionStorage.getItem('trade-net-guide-step')||0),guideJobId=sessionStorage.getItem('trade-net-guide-job')||'';
 const el=id=>document.getElementById(id);
 function log(text,err=false){let node=el('log'),time=new Date().toISOString().slice(11,19);node.textContent=time+'  '+(err?'ERROR · ':'')+text+'\n'+node.textContent.slice(0,6000)}
@@ -124,12 +127,13 @@ el('momentContinue').addEventListener('click',()=>el('momentDialog').close());
 el('momentDialog').addEventListener('close',()=>{activeMoment=null;setTimeout(showNextMoment,150)});
 function scanGameplayMoments(){
   let g=state.game,entries=(g.journal||[]).slice(-120),flights=new Map(Object.entries(g.fleet||{}).map(([id,ship])=>[id,{destination:ship.destination,location:ship.location,name:ship.name}])),radio=new Map((state.radio_transmissions||[]).map(job=>[job.id,job.status]));
-  if(!momentsReady){entries.forEach(entry=>seenJournal.add(entry.id));priorFlights=flights;priorRadio=radio;momentsReady=true;return}
+  if(!momentsReady){entries.forEach(entry=>seenJournal.add(entry.id));priorFlights=flights;priorRadio=radio;priorDispatch=new Set((state.dispatch_signals||[]).map(signal=>signal.id));momentsReady=true;return}
   let fresh=entries.filter(entry=>!seenJournal.has(entry.id)),discovered=new Set(fresh.filter(entry=>entry.action==='explore').map(entry=>entry.result?.port));
   for(let entry of fresh){seenJournal.add(entry.id);queueMoment(milestoneFor(entry))}
   for(let [id,ship] of flights){let before=priorFlights.get(id);if(before?.destination&&!ship.destination&&ship.location===before.destination&&!discovered.has(ship.location))queueMoment({kind:'arrival',category:'FLIGHT COMPLETE',title:`Welcome to ${ship.location}`,description:`${ship.name} has docked safely. Markets, repairs, and new contracts are available at this port.`,detail:'ARRIVAL CONFIRMED'})}
   for(let job of state.radio_transmissions||[]){let previous=priorRadio.get(job.id);if(previous==='awaiting_ack'&&job.status==='delivered')queueMoment({kind:'radio',category:'RADIO LINK CONFIRMED',title:job.purpose==='contact'?'First contact established':'Delivery acknowledged',description:job.purpose==='contact'?'The other operator has acknowledged your signal. Shared reports and partner contracts are now available.':'The receiving station acknowledged the full transfer. Your radio freight has settled.',detail:'VERIFIED APPLICATION RECEIPT'});if(previous==='awaiting_ack'&&job.status==='failed')queueMoment({kind:'failure',category:'LINK LOST',title:job.ship_result?.destroyed?'Ship lost in transmission':'Transmission failed',description:job.ship_result?.destroyed?'The ship was destroyed in hard mode. Its cargo and passenger, if any, were lost.':'Your ship returned to its departure hub with damage. The cargo may be retried after the link recovers.',detail:'INSPECT YOUR FLEET BEFORE RETRYING'})}
-  priorFlights=flights;priorRadio=radio;
+  for(let signal of state.dispatch_signals||[])if(!priorDispatch.has(signal.id))queueMoment({kind:'story',category:'◇ FRONTIER DISPATCH',title:signal.title,description:signal.description,reward:`+${signal.reward.toLocaleString()} cr contract`,detail:'NEW LOCAL MISSION AVAILABLE'});
+  priorFlights=flights;priorRadio=radio;priorDispatch=new Set((state.dispatch_signals||[]).map(signal=>signal.id));
   // Keep the deduplication set bounded as old journal entries roll out of view.
   if(seenJournal.size>300)seenJournal=new Set(entries.map(entry=>entry.id));
 }
@@ -257,7 +261,7 @@ function map(){
     cluster.appendChild(svg('ellipse',{cx:p.x,cy:p.y,rx:86,ry:55,fill:'#30253c35',stroke:'#75678d','stroke-width':1}));
     let target=svg('g',{role:'button',tabindex:'0','aria-label':`Choose galaxy ${galaxy.name}, rich in ${galaxy.specialization}`,'aria-pressed':'false','data-galaxy':id,'data-radio-station':id,'data-focus-key':'galaxy:'+id,class:'galaxy-target'});
     target.append(svg('circle',{cx:p.x,cy:p.y,r:42,fill:'transparent'}),svg('ellipse',{cx:p.x,cy:p.y,rx:32,ry:13,fill:'#8c7faa55',stroke:'#c3b6dc','stroke-width':1.5,transform:`rotate(-25 ${p.x} ${p.y})`}),svg('circle',{cx:p.x,cy:p.y,r:7,fill:'#dbd0ec'}),svg('ellipse',{cx:p.x,cy:p.y,rx:93,ry:62,class:'selection-ring','data-galaxy-ring':id,visibility:'hidden'}));
-    target.append(svg('text',{x:p.x,y:p.y+83,'text-anchor':'middle',class:'planet-label'},galaxy.name),svg('text',{x:p.x,y:p.y+100,'text-anchor':'middle',class:'resource-label'},`${galaxy.specialization.toUpperCase()} RICH`));
+    target.append(svg('text',{x:p.x,y:p.y+83,'text-anchor':'middle',class:'planet-label'},(state.radio_contacts?.[id]?'◉ ':'○ ')+galaxy.name),svg('text',{x:p.x,y:p.y+100,'text-anchor':'middle',class:'resource-label'},`${galaxy.specialization.toUpperCase()} RICH`));
     activate(target,()=>{el('radioStation').value=id;renderExchange();el('detail').textContent=`${galaxy.name} · ${galaxy.specialization}-rich station heard over radio. Deliveries are addressed to its hub; ships stay in this galaxy.`;setView('comms')});cluster.appendChild(target);
     let neighbors=galaxy.reported_neighbors||[];
     neighbors.forEach((neighbor,index)=>{let angle=-Math.PI+(index+.5)*Math.PI/Math.max(1,neighbors.length),q={x:p.x+Math.cos(angle)*125,y:p.y+Math.sin(angle)*100};
@@ -407,7 +411,7 @@ function render(){
   upgrade.disabled=!docked||g.credits<holdCost;
   let maintenance=el('maintenanceQuote');if(!maintenance){maintenance=document.createElement('div');maintenance.id='maintenanceQuote';maintenance.className='hint';el('fleetForm').appendChild(maintenance)}
   maintenance.textContent=`Service costs: fuel ${refuelCost} cr · repair ${repairCost} cr · expand hold ${holdCost} cr`;
-  renderFleetManager();map();renderContracts();renderCampaign();renderObjective();renderExchange();renderRadioJourney();updateTradeQuote();updateRouteQuote();renderGuide();scanGameplayMoments();
+  renderFleetManager();map();renderContracts();renderCampaign();renderObjective();renderExchange();renderDispatchSignals();renderSectorNews();renderRadioJourney();updateTradeQuote();updateRouteQuote();renderGuide();scanGameplayMoments();
   el('selectedShipSummary').replaceChildren(shipPortrait('commandShipSprite',ship),document.createTextNode(ship.name+' · '+g.location+' · '+ship.fuel+' fuel'));
   el('name').previousElementSibling.textContent='Current galaxy';
 }
@@ -554,7 +558,7 @@ function renderExchange(){
   else{
     let summary=document.createElement('div');summary.className='stat';
     let contact=Boolean(state.radio_contacts?.[station]);let p=state.radio_resources?.[station]||{};
-    summary.innerHTML='';let heading=document.createElement('b');heading.textContent=`${station} · ${contact?'first contact complete':'not contacted'}`;
+    summary.innerHTML='';let heading=document.createElement('b');heading.textContent=`${contact?'◉':'○'} ${station} · ${contact?'first contact complete':'not contacted'}`;
     let detail=document.createElement('p');detail.className='muted';detail.textContent=p.richness?`${p.richness}-rich · resource report received`:'Resource report will arrive with first contact.';summary.append(heading,detail);container.append(summary);
     for(let c of contracts){let card=document.createElement('div');card.className='stat';card.textContent=`${c.quantity} ${c.good} requested by ${station} · ${c.id}`;container.append(card)}
     if(!contracts.length&&contact){let empty=document.createElement('div');empty.className='stat';empty.textContent='No active partner contracts cached. The receiver will send the replacement contract with its delivery receipt.';container.append(empty)}
@@ -568,6 +572,30 @@ function renderExchange(){
     if(button.value==='radio_contact'){button.hidden=Boolean(state.radio_contacts?.[station]);button.disabled=!/^[A-Z0-9/-]{1,10}$/.test(station)||station===local||!el('radioMode').value||Boolean(state.game.ship.radio_mission)||state.game.ship.condition<10||state.game.location!=='Haven'||Boolean(state.game.ship.destination)}
     if(button.value==='exchange_reserve'){button.hidden=!state.radio_contacts?.[station];button.disabled=!contracts.length||!station||Boolean(state.radio_reservations?.[contractSelect.value])||Boolean(state.game.ship.radio_mission)||state.game.location!=='Haven'||Boolean(state.game.ship.destination)||((stored[selected?.good]||0)<(selected?.quantity||1))}
     if(button.value==='radio_delivery')button.disabled=!state.radio_reservations?.[contractSelect.value]||!el('radioMode').value||Boolean(state.game.ship.radio_mission)||state.game.ship.condition<10||state.game.location!=='Haven'||Boolean(state.game.ship.destination);
+  }
+}
+function showDispatchJob(jobId){
+  setView('contracts');currentContractsFilter='freight';renderContracts();
+  let card=[...el('contracts').querySelectorAll('[data-job-id]')].find(node=>node.dataset.jobId===jobId);
+  (card||el('contractsPanel')).scrollIntoView({behavior:motionBehavior(),block:'start'});
+}
+function renderSectorNews(){
+  let signal=(state.dispatch_signals||[]).at(-1),bar=el('sectorNews');bar.hidden=!signal;
+  if(!signal)return;
+  el('newsTitle').textContent=signal.title+' · '+signal.port;
+  el('newsDescription').textContent=`${signal.description} ${signal.good} demand up 50% · ${Math.max(0,signal.end_tick-state.game.tick)} ticks remaining.`;
+  let job=state.game.local_jobs?.[signal.job_id],button=el('newsAction');button.disabled=!job||job.status!=='open';button.textContent=job?.status==='delivered'?'Contract complete':job?.status==='open'?`View +${job.reward.toLocaleString()} cr job`:'Contract ended';button.dataset.jobId=signal.job_id;
+}
+function renderDispatchSignals(){
+  let container=el('dispatchSignals');container.replaceChildren();
+  let legend=document.createElement('div');legend.className='signal-legend';for(let label of ['◇ Local dispatch','○ Unverified RF','◉ Verified RF']){let item=document.createElement('span');item.textContent=label;legend.append(item)}container.append(legend);
+  for(let signal of (state.dispatch_signals||[]).slice().reverse()){
+    let card=document.createElement('div');card.className='dispatch-signal';
+    let tag=document.createElement('span');tag.className='tag';tag.textContent='◇ SECTOR DISPATCH';
+    let title=document.createElement('h3');title.textContent=signal.title+' · '+signal.port;
+    let detail=document.createElement('p');detail.textContent=signal.description;
+    let job=state.game.local_jobs?.[signal.job_id],button=document.createElement('button');button.type='button';button.className='secondary';button.textContent=job?.status==='open'?`Review ${signal.quantity} ${signal.good} · ${signal.reward.toLocaleString()} cr`:'Dispatch closed';button.disabled=job?.status!=='open';button.addEventListener('click',()=>showDispatchJob(signal.job_id));
+    card.append(tag,title,detail,button);container.append(card);
   }
 }
 function renderContracts(){
@@ -589,8 +617,8 @@ function renderContracts(){
   }
   for(let job of Object.values(g.local_jobs||{}).filter(j=>j.status==='open').sort((a,b)=>a.deadline-b.deadline)){
     let card=document.createElement('div');card.className='stat contract-card';
-    card.dataset.kind='freight';card.hidden=currentContractsFilter!=='all'&&currentContractsFilter!=='freight';
-    let type=document.createElement('span');type.className='contract-type';type.textContent='LOCAL FREIGHT · '+job.reward.toLocaleString()+' CR';card.append(type);
+    card.dataset.kind=job.kind==='dispatch'?'dispatch':'freight';card.dataset.jobId=job.id;card.hidden=currentContractsFilter!=='all'&&currentContractsFilter!=='freight';
+    let type=document.createElement('span');type.className='contract-type';type.textContent=(job.kind==='dispatch'?'◇ SECTOR DISPATCH':'LOCAL FREIGHT')+' · '+job.reward.toLocaleString()+' CR';card.append(type);
     let title=document.createElement('h3');title.textContent=`${job.quantity} ${job.good} → ${job.destination}`;card.append(title);
     let detail=document.createElement('small');detail.textContent=`Suggested pickup: ${job.origin} · ${Math.max(0,job.deadline-g.tick)} economy ticks left`;card.append(detail);
     let available=g.cargo[job.good]||0,atDestination=g.location===job.destination;
@@ -609,7 +637,7 @@ function renderContracts(){
   for(let c of offers){
     let card=document.createElement('div');card.className='stat contract-card';card.dataset.kind='radio';card.hidden=currentContractsFilter!=='all'&&currentContractsFilter!=='radio';
     let contacted=Boolean(state.radio_contacts?.[c.station]);
-    let type=document.createElement('span');type.className='contract-type';type.textContent=c.station===local?'YOUR HUB REQUEST':contacted?'PARTNER REQUEST':'HEARD REQUEST';card.appendChild(type);
+    let type=document.createElement('span');type.className='contract-type';type.textContent=(c.station===local||contacted?'◉ ':'○ ')+(c.station===local?'YOUR HUB REQUEST':contacted?'PARTNER REQUEST':'HEARD REQUEST');card.appendChild(type);
     let title=document.createElement('h3');title.textContent=`Deliver ${c.quantity} ${c.good}`;card.appendChild(title);
     let detail=document.createElement('small');detail.textContent=`Requested by ${c.station} · ${c.id}`;card.appendChild(detail);
     let stock=document.createElement('div');stock.className='hint';stock.textContent=c.station===local?'Other stations can fulfill this request.':contacted?`Export warehouse: ${state.game.export_warehouse?.[c.good]||0}/${c.quantity} · source goods outside Haven`:'Make first contact before delivering to this hub.';card.appendChild(stock);
@@ -647,6 +675,7 @@ el('fleetForm').addEventListener('submit',submitFlight);
 el('connectModem').addEventListener('click',async()=>{try{let result=await api({action:'radio_status'}),select=el('radioMode');select.replaceChildren();for(let mode of result.modes){let option=document.createElement('option');option.value=mode.mode_id;option.textContent=`${mode.mode_id} · ${mode.bandwidth_hz} Hz`;select.append(option)}el('modemBadge').textContent=`MODEM · ${result.host} ONLINE`;renderExchange()}catch(e){el('modemBadge').textContent='MODEM · OFFLINE'}});
 el('radioStation').addEventListener('input',renderExchange);el('radioContract').addEventListener('change',renderExchange);
 el('radioMode').addEventListener('change',renderExchange);
+el('newsAction').addEventListener('click',()=>showDispatchJob(el('newsAction').dataset.jobId));
 el('exchangeForm').addEventListener('submit',e=>{e.preventDefault();let action=e.submitter.value,station=el('radioStation').value,contract_id=el('radioContract').value;if(action==='exchange_reserve'){api({action,station,contract_id}).catch(()=>{});return}let purpose=action==='radio_contact'?'contact':'delivery';api({action:'radio_transmit',purpose,station,contract_id,mode_id:el('radioMode').value}).then(result=>{activeRadioJobId=result.job_id;renderRadioJourney();el('radioReceipt').textContent=`Data2G queued ${result.frames} frame${result.frames===1?'':'s'} carrying ${result.bytes} bytes. Waiting for ${station}'s receipt.`;el('modemBadge').textContent='MODEM · FRAMES QUEUED'}).catch(()=>{})});
 // The debug panel keeps the simulator and protocol test controls accessible without
 // turning them into primary gameplay actions. This setting is session-local.
@@ -654,6 +683,7 @@ el('exchangeForm').addEventListener('submit',e=>{e.preventDefault();let action=e
 let exchangePanel=el('exchangeForm').closest('section');
 exchangePanel.id='exchangePanel';
 el('commsPanel').append(exchangePanel);
+let dispatchPanel=document.createElement('section');dispatchPanel.id='dispatchSignals';dispatchPanel.className='stat';dispatchPanel.setAttribute('aria-label','Sector dispatch signals');dispatchPanel.style.marginBottom='16px';el('exchangePanel').before(dispatchPanel);
 let campaignPanel=document.createElement('div');campaignPanel.id='campaignPanel';campaignPanel.className='stat';campaignPanel.style.marginBottom='16px';el('contracts').before(campaignPanel);
 let filters=document.createElement('div');filters.id='contractFilters';filters.className='contract-filters';filters.setAttribute('role','group');filters.setAttribute('aria-label','Filter contracts');for(let kind of ['all','freight','vip','radio']){let button=document.createElement('button');button.type='button';button.className='secondary';button.dataset.filter=kind;button.textContent=kind;button.setAttribute('aria-pressed',String(kind==='all'));button.addEventListener('click',()=>{currentContractsFilter=kind;renderContracts()});filters.append(button)}el('contracts').before(filters);
 let equipmentPanel=document.createElement('div');equipmentPanel.id='equipmentPanel';equipmentPanel.className='stat';equipmentPanel.style.marginTop='14px';el('fleetForm').after(equipmentPanel);

@@ -74,6 +74,22 @@ class BrowserUIContractTests(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertIn(marker, html)
 
+    def test_simulated_dispatch_is_visually_distinct_from_live_radio(self):
+        html = self.browser_html()
+        parser = _Ids()
+        parser.feed(html)
+        self.assertTrue({"sectorNews", "newsAction", "newsTitle"}.issubset(parser.ids))
+        for marker in ("◇ Local dispatch", "○ Unverified RF", "◉ Verified RF", "renderDispatchSignals()",
+                       "renderSectorNews()", "showDispatchJob(", "dispatch_signals",
+                       "job.kind==='dispatch'", "state.radio_contacts?.[id]?'◉ ':'○ '"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, html)
+        # Fictional contacts navigate only to local contracts. The single live
+        # transmit call is in the separate operator exchange form.
+        dispatch_ui = html.split("function renderDispatchSignals(){", 1)[1].split("function renderContracts(){", 1)[0]
+        self.assertNotIn("radio_transmit", dispatch_ui)
+        self.assertNotIn("/api/action", dispatch_ui)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -47,7 +47,8 @@
 
 ## Milestone 4: RF adapter
 
-- [ ] Verify Data2G host/KISS APIs and supported frame payload budget.
+- [x] Inspect Data2G host/KISS reference documentation and implement a guarded, single-frame probe/listen/send harness.
+- [ ] Validate actual port behavior and payload budget with a live Data2G host/dummy load.
 - [ ] Implement capability-aware adapter and binary envelope.
 - [ ] Integrate operator-controlled transmit queue, airtime estimate and duty limits.
 - [ ] Cross-version compatibility tests, real modem loopback, then low-power controlled on-air trials.

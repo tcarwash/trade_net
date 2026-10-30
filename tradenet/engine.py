@@ -41,6 +41,83 @@ class Game:
     incoming_reserved: int = 0
     clock_epoch: int | None = None
     tick_seconds: int = 300
+    fleet: dict = field(default_factory=dict)
+    active_ship_id: str = "ship-1"
+    next_ship_number: int = 2
+    hard_mode: bool = False
+
+    def __post_init__(self):
+        # Migrate version-one single-ship saves without changing their schema.
+        if not self.fleet and self.active_ship_id:
+            self.ship.setdefault("location", self.location)
+            self.ship.setdefault("cargo", self.cargo)
+            self.ship.setdefault("id", self.active_ship_id)
+            self.fleet = {self.active_ship_id: self.ship}
+        if self.active_ship_id not in self.fleet:
+            self.active_ship_id = next(iter(self.fleet), "")
+        if self.active_ship_id:
+            self._bind_ship()
+
+    def _bind_ship(self):
+        self.ship = self.fleet[self.active_ship_id]
+        self.location = self.ship["location"]
+        self.cargo = self.ship["cargo"]
+
+    def _all_arrivals(self):
+        for ship in self.fleet.values():
+            if ship.get("destination") is not None and self.tick >= ship["arrival_tick"]:
+                ship["location"] = ship.pop("destination")
+                ship["destination"] = None
+                ship["arrival_tick"] = None
+        if self.active_ship_id:
+            self._bind_ship()
+
+    def _select_ship(self, ship_id: str) -> dict:
+        if ship_id not in self.fleet:
+            raise GameError("unknown ship")
+        self.active_ship_id = ship_id
+        self._bind_ship()
+        return {"active_ship_id": ship_id, "location": self.location}
+
+    def _purchase_ship(self, tier: int = 0) -> dict:
+        if type(tier) is not int or not 0 <= tier < len(TIERS):
+            raise GameError("invalid ship class")
+        cost = (350, 900, 1800)[tier]
+        if self.credits < cost:
+            raise GameError("insufficient credits for ship")
+        self.credits -= cost
+        ship_id = f"ship-{self.next_ship_number}"
+        self.next_ship_number += 1
+        self.fleet[ship_id] = {"id": ship_id, "name": TIERS[tier]["name"],
+                               "capacity": 30, "fuel": 40, "max_fuel": 40,
+                               "condition": 100, "destination": None,
+                               "arrival_tick": None, "modem_tier": tier,
+                               "speed": tier + 1, "location": self.location,
+                               "cargo": {g: 0 for g in GOODS}}
+        if not self.active_ship_id:
+            self.active_ship_id = ship_id
+            self._bind_ship()
+        return {"ship_id": ship_id, "class": TIERS[tier]["name"], "cost": cost}
+
+    def damage_ship(self, ship_id: str, amount: int, origin: str) -> dict:
+        """Failed RF mission: return home damaged, or lose ship in hard mode."""
+        if ship_id not in self.fleet or origin not in self.ports or amount <= 0:
+            raise GameError("invalid mission damage")
+        ship = self.fleet[ship_id]
+        ship["condition"] = max(0, ship["condition"] - amount)
+        ship["location"] = origin
+        ship.pop("radio_mission", None)
+        ship["destination"] = None
+        ship["arrival_tick"] = None
+        destroyed = self.hard_mode and ship["condition"] == 0
+        if destroyed:
+            del self.fleet[ship_id]
+            if self.active_ship_id == ship_id:
+                self.active_ship_id = next(iter(self.fleet), "")
+        if self.active_ship_id:
+            self._bind_ship()
+        return {"ship_id": ship_id, "damage": amount, "destroyed": destroyed,
+                "condition": 0 if destroyed else ship["condition"], "returned_to": origin}
 
     @classmethod
     def new(cls, seed: int = 1, name: str = "Home Galaxy") -> "Game":
@@ -81,7 +158,8 @@ class Game:
         # buying and immediately reselling for a profit in the same port.
         pressure = max(50, min(200, 150 - stock))
         midpoint = max(1, BASE_PRICE[good] * pressure // 100)
-        return max(1, midpoint * (110 if action == "buy" else 90) // 100)
+        multiplier = 110 if action == "buy" else (104 if self.hard_mode else 90)
+        return max(1, midpoint * multiplier // 100)
 
     def _check_port_good(self, port: str, good: str) -> None:
         if port not in self.ports:
@@ -90,8 +168,12 @@ class Game:
             raise GameError(f"unknown good: {good}")
 
     def _available(self) -> None:
+        if not self.active_ship_id:
+            raise GameError("no surviving ship; purchase a replacement to continue")
         if self.ship["destination"] is not None:
             raise GameError("ship is in transit")
+        if self.ship.get("radio_mission"):
+            raise GameError("ship is assigned to a radio mission")
 
     def cargo_used(self) -> int:
         return sum(self.cargo.values())
@@ -125,6 +207,12 @@ class Game:
                 result = self._buy_ship()
             elif action == "buy_ship":
                 result = self._buy_ship()
+            elif action == "purchase_ship":
+                result = self._purchase_ship(**kwargs)
+            elif action == "select_ship":
+                result = self._select_ship(**kwargs)
+            elif action == "set_hard_mode":
+                result = self._set_hard_mode(**kwargs)
             elif action == "accept_contract":
                 result = self._accept_contract(**kwargs)
             elif action == "cancel_contract":
@@ -188,6 +276,14 @@ class Game:
         return {"destination": destination, "arrival_tick": self.ship["arrival_tick"],
                 "fuel_cost": fuel_cost}
 
+    def _set_hard_mode(self, enabled: bool) -> dict:
+        if type(enabled) is not bool:
+            raise GameError("hard mode must be a boolean")
+        if self.hard_mode and not enabled:
+            raise GameError("hard mode cannot be disabled after activation")
+        self.hard_mode = enabled
+        return {"hard_mode": enabled, "sell_bonus_percent": 15 if enabled else 0}
+
     def _wait(self, ticks: int = 1) -> dict:
         if type(ticks) is not int or not 1 <= ticks <= 100:
             raise GameError("wait must be 1-100 ticks")
@@ -198,11 +294,7 @@ class Game:
                     port["stock"][good] = max(0, min(300,
                         port["stock"][good] + port["production"][good] -
                         port["consumption"][good]))
-            if (self.ship["destination"] is not None and
-                    self.tick >= self.ship["arrival_tick"]):
-                self.location = self.ship["destination"]
-                self.ship["destination"] = None
-                self.ship["arrival_tick"] = None
+            self._all_arrivals()
         return {"tick": self.tick, "location": self.location,
                 "in_transit": self.ship["destination"] is not None}
 
@@ -224,11 +316,7 @@ class Game:
                     delta = port["production"][good] - port["consumption"][good]
                     port["stock"][good] = max(0, min(300, port["stock"][good] + elapsed * delta))
             self.tick += elapsed
-            if (self.ship["destination"] is not None and
-                    self.tick >= self.ship["arrival_tick"]):
-                self.location = self.ship["destination"]
-                self.ship["destination"] = None
-                self.ship["arrival_tick"] = None
+            self._all_arrivals()
             self.clock_epoch = epoch
         return {"epoch": self.clock_epoch, "advanced": elapsed, "tick": self.tick}
 

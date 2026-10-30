@@ -8,6 +8,15 @@ The fictional economy remains playable locally. Radio is an optional, meaningful
 
 ## Core promise
 
+The browser's normal view focuses on flying between planets, trading cargo,
+fulfilling contracts, and watching radio freight progress across discovered
+station links. A ship marker identifies the current planet; dispatching it
+briefly animates departure and arrival. Queued radio freight draws a ship on
+the active link, advancing only as payload frames are successfully received
+(lost frames and retries delay it). The comms journal remains visible, while
+protocol simulators and diagnostics are tucked behind **Debug**. The preview
+still simulates radio; it does not key a transmitter.
+
 - **Your own galaxy:** build starports, operate ships, and trade with simulated ports without waiting for another operator.
 - **Discover people by trading:** a verified on-air interaction creates or updates a real-station node in your galaxy.
 - **Learn their neighbors:** compact, timestamped next-hop advertisements reveal a *reported* network, distinct from links you directly measured.

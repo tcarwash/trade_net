@@ -97,6 +97,53 @@ class EconomyTests(unittest.TestCase):
                          {p: x["stock"] for p, x in b.ports.items()})
         self.assertEqual(a.sync_utc(base + 11 * 300)["advanced"], 0)
 
+    def test_individual_fleet_inventory_and_persistence(self):
+        game = Game.new(14)
+        first = game.active_ship_id
+        game.command("load", "buy", good="food", amount=1)
+        bought = game.command("buy-second", "purchase_ship", tier=1)
+        second = bought["ship_id"]
+        self.assertEqual(game.fleet[second]["modem_tier"], 1)
+        game.command("switch", "select_ship", ship_id=second)
+        self.assertEqual(game.cargo["food"], 0)
+        game.command("voyage", "travel", destination="Kepler")
+        game.command("switch-back", "select_ship", ship_id=first)
+        self.assertEqual(game.location, "Haven")
+        self.assertEqual(game.cargo["food"], 1)
+        game.command("tick", "wait", ticks=3)
+        self.assertEqual(game.fleet[second]["location"], "Kepler")
+        reloaded = Game.from_dict(game.to_dict())
+        self.assertEqual(reloaded.fleet[second]["location"], "Kepler")
+        reloaded.command("select-again", "select_ship", ship_id=second)
+        self.assertEqual(reloaded.location, "Kepler")
+
+    def test_legacy_single_ship_save_migrates(self):
+        old = Game.new(3).to_dict()
+        for key in ("fleet", "active_ship_id", "next_ship_number", "hard_mode"):
+            old.pop(key)
+        for key in ("location", "cargo", "id"):
+            old["ship"].pop(key, None)
+        game = Game.from_dict(old)
+        self.assertEqual(len(game.fleet), 1)
+        self.assertEqual(game.location, "Haven")
+        self.assertIs(game.ship, game.fleet[game.active_ship_id])
+
+    def test_hard_mode_buff_and_irreversible_permadeath(self):
+        easy, hard = Game.new(8), Game.new(8)
+        hard.command("hard", "set_hard_mode", enabled=True)
+        self.assertGreater(hard.price("Haven", "ore", "sell"),
+                           easy.price("Haven", "ore", "sell"))
+        with self.assertRaises(GameError):
+            hard.command("no-back", "set_hard_mode", enabled=False)
+        easy.damage_ship(easy.active_ship_id, 100, "Haven")
+        self.assertEqual(len(easy.fleet), 1)
+        result = hard.damage_ship(hard.active_ship_id, 100, "Haven")
+        self.assertTrue(result["destroyed"])
+        self.assertFalse(hard.fleet)
+        hard.credits = 1000
+        hard.command("replacement", "purchase_ship", tier=0)
+        self.assertEqual(len(hard.fleet), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

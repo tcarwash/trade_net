@@ -6,6 +6,171 @@ from tradenet import Game, GameError
 
 
 class EconomyTests(unittest.TestCase):
+    def test_faction_standings_affect_market_prices(self):
+        game = Game.new(42)
+        before_sell = game.price('Haven', 'food', 'sell')
+        before_ore = game.price('Haven', 'ore', 'buy')
+        game.factions['traders'] = 20
+        game.factions['miners'] = 20
+        self.assertGreaterEqual(game.price('Haven', 'food', 'sell'), before_sell)
+        self.assertLessEqual(game.price('Haven', 'ore', 'buy'), before_ore)
+        self.assertEqual(Game.from_dict(game.to_dict()).factions['miners'], 20)
+
+    def test_story_chapters_require_objectives_and_remain_idempotent(self):
+        game = Game.new(42)
+        with self.assertRaises(GameError):
+            game.command('too-soon', 'complete_story')
+        game.ship['location'] = 'Kepler'
+        game._bind_ship()
+        first = game.command('chapter-1', 'complete_story')
+        self.assertEqual(first['next']['port'], 'Aurora')
+        game.ship['location'] = 'Aurora'
+        game._bind_ship()
+        with self.assertRaises(GameError):
+            game.command('no-medicine', 'complete_story')
+        game.cargo['medicine'] = 2
+        second = game.command('chapter-2', 'complete_story')
+        self.assertEqual(second['next']['port'], 'Eidolon')
+        self.assertEqual(game.cargo['medicine'], 0)
+        self.assertEqual(game.command('chapter-2', 'complete_story'), second)
+        self.assertEqual(Game.from_dict(game.to_dict()).story_stage, 2)
+
+    def test_equipment_and_pirate_choices(self):
+        from unittest.mock import patch
+        game = Game.new(42)
+        bought = game.command('scanner', 'buy_equipment', item='scanner')
+        self.assertEqual(bought['cost'], 220)
+        with self.assertRaises(GameError):
+            game.command('scanner-twice', 'buy_equipment', item='scanner')
+        with self.assertRaises(GameError):
+            game.command('bad-gear', 'buy_equipment', item='nuclear')
+        route = next((p for p in game.ports if p != 'Haven' and game.route_risk('Haven', p)['kind'] == 'pirates'), None)
+        if route is not None:
+            with patch.object(game, 'blocked_port', return_value='Haven'):
+                before = game.credits
+                result = game.command('evade-pirates', 'travel', destination=route, pirate_stance='evade')
+            self.assertEqual(result['hazard']['kind'], 'pirates')
+            self.assertNotIn('toll', result['hazard'])
+            self.assertEqual(game.credits, before)
+
+    def test_expanded_galaxy_exploration_and_save_migration(self):
+        from unittest.mock import patch
+        game = Game.new(42)
+        self.assertEqual(len(game.ports), 10)
+        self.assertEqual(game.visited_ports, ['Haven'])
+        legacy = game.to_dict()
+        for port in list(legacy['ports'])[5:]:
+            legacy['ports'].pop(port)
+            legacy['galaxies']['home']['ports'].pop(port, None)
+        restored = Game.from_dict(legacy)
+        self.assertEqual(len(restored.ports), 10)
+        with patch.object(game, 'blocked_port', return_value='Eidolon'):
+            game.command('explore-trip', 'travel', destination='Kepler')
+        game.ship['arrival_at'] = 0
+        previous = game.credits
+        game._all_arrivals()
+        reward = game.journal[-1]['result']['reward']
+        self.assertGreater(reward, 90)
+        self.assertEqual(game.credits, previous + reward)
+        self.assertIn('Kepler', game.visited_ports)
+        game._all_arrivals()
+        self.assertEqual(game.credits, previous + reward)
+
+    def test_vip_passengers_are_ship_specific_and_pay_once(self):
+        game = Game.new(42)
+        job = next(iter(game.vip_jobs.values()))
+        game.ship['location'] = job['origin']
+        game._bind_ship()
+        picked = game.command('board', 'accept_vip', job_id=job['id'])
+        self.assertEqual(picked['destination'], job['destination'])
+        with self.assertRaises(GameError):
+            game.command('double-board', 'accept_vip', job_id=job['id'])
+        with self.assertRaises(GameError):
+            game.command('early-drop', 'deliver_vip', job_id=job['id'])
+        game.ship['location'] = job['destination']
+        game._bind_ship()
+        credits = game.credits
+        result = game.command('drop', 'deliver_vip', job_id=job['id'])
+        self.assertEqual(game.credits, credits + result['reward'])
+        self.assertEqual(game.command('drop', 'deliver_vip', job_id=job['id']), result)
+        with self.assertRaises(GameError):
+            game.command('double-drop', 'deliver_vip', job_id=job['id'])
+
+    def test_hazards_are_predictable_and_damage_is_accounted(self):
+        from unittest.mock import patch
+        game = Game.new(42)
+        destination = 'Drift'
+        risk = game.route_risk('Haven', destination)
+        with patch.object(game, 'blocked_port', return_value='Eidolon'):
+            before = game.ship['condition']
+            result = game.command('danger', 'travel', destination=destination)
+        self.assertEqual(result['hazard']['kind'], risk['kind'])
+        distance = abs(game.ports['Haven']['distance']-game.ports[destination]['distance'])
+        self.assertEqual(before-game.ship['condition'], max(1,distance)+result['hazard_damage'])
+
+    def test_market_intel_remembers_dockside_best_quotes(self):
+        game = Game.new(42)
+        self.assertEqual(game.price_memory['food']['lowest_buy']['port'], 'Haven')
+        game.ship['location'] = 'Kepler'
+        game._bind_ship()
+        game.ports['Kepler']['stock']['food'] = 200
+        game.observe_markets()
+        self.assertEqual(game.price_memory['food']['lowest_buy']['port'], 'Kepler')
+        remembered = game.price_memory['food']['lowest_buy']['price']
+        game.ports['Kepler']['stock']['food'] = 0
+        game.observe_markets()
+        self.assertEqual(game.price_memory['food']['lowest_buy']['price'], remembered)
+        self.assertEqual(Game.from_dict(game.to_dict()).price_memory['food']['lowest_buy']['price'], remembered)
+
+    def test_orbiting_asteroid_field_blocks_one_destination(self):
+        from unittest.mock import patch
+        game = Game.new(42)
+        with patch('tradenet.engine.time.time', return_value=9000):
+            blocked = game.blocked_port()
+            self.assertNotEqual(game.blocked_port(9090), blocked)
+            if blocked != game.location:
+                with self.assertRaisesRegex(GameError, 'Asteroid field'):
+                    game.command('blocked', 'travel', destination=blocked)
+            safe = next(port for port in game.ports if port not in (game.location, blocked))
+            self.assertEqual(game.command('safe', 'travel', destination=safe)['destination'], safe)
+
+    def test_export_freight_must_be_imported_to_haven(self):
+        game = Game.new(42)
+        game.command('home-buy', 'buy', good='food', amount=2)
+        with self.assertRaises(GameError):
+            game.command('home-export', 'unload_export', good='food', amount=2)
+        game.ship['location'] = 'Kepler'
+        game._bind_ship()
+        game.command('foreign-buy', 'buy', good='food', amount=3)
+        with self.assertRaises(GameError):
+            game.command('away-export', 'unload_export', good='food', amount=3)
+        game.ship['location'] = 'Haven'
+        game._bind_ship()
+        result = game.command('import', 'unload_export', good='food', amount=3)
+        self.assertEqual(result['warehouse'], 3)
+        self.assertEqual(game.cargo['food'], 2)
+        self.assertEqual(game.ship['export_cargo']['food'], 0)
+        self.assertEqual(Game.from_dict(game.to_dict()).export_warehouse['food'], 3)
+
+    def test_local_freight_requires_delivery_and_replenishes_board(self):
+        game = Game.new(42)
+        self.assertEqual(len([j for j in game.local_jobs.values() if j['status'] == 'open']), 3)
+        job = next(iter(game.local_jobs.values()))
+        with self.assertRaises(GameError):
+            game.command('premature', 'deliver_local', job_id=job['id'])
+        game.cargo[job['good']] = job['quantity']
+        game.ship['location'] = job['destination']
+        game._bind_ship()
+        before = game.credits
+        delivered = game.command('delivery', 'deliver_local', job_id=job['id'])
+        self.assertEqual(delivered['reward'], job['reward'])
+        self.assertEqual(game.credits, before + job['reward'])
+        self.assertEqual(game.cargo[job['good']], 0)
+        self.assertEqual(len([j for j in game.local_jobs.values() if j['status'] == 'open']), 3)
+        self.assertEqual(game.command('delivery', 'deliver_local', job_id=job['id']), delivered)
+        with self.assertRaises(GameError):
+            game.command('double-pay', 'deliver_local', job_id=job['id'])
+
     def test_seed_reproducible_and_specialized(self):
         a, b = Game.new(42), Game.new(42)
         self.assertEqual(a.to_dict(), b.to_dict())

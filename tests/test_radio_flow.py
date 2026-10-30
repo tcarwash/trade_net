@@ -6,7 +6,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from tradenet.engine import Game
+from tradenet.engine import Game, BASE_PRICE, GameError
 from tradenet.network import Network
 from tradenet import radio_exchange
 from tradenet.web import App
@@ -49,6 +49,22 @@ def outgoing(app, payload, purpose, destination, contract_id=""):
 
 
 class RadioFlowTests(unittest.TestCase):
+    def test_radio_reservation_requires_imported_warehouse_goods(self):
+        alice = station('W1AAA', 11)
+        alice.radio_contacts['W2BBB'] = 1
+        contract = {'id': 'W2BBB-C001', 'issuer': 'W2BBB', 'good': 'food',
+                    'quantity': 3, 'status': 'open'}
+        alice.radio_contracts['W2BBB'] = [contract]
+        alice.game.ports['Haven']['stock']['food'] = 200
+        request = {'action': 'exchange_reserve', 'station': 'W2BBB', 'contract_id': contract['id']}
+        with self.assertRaises(GameError):
+            alice.execute(request)
+        alice.game.export_warehouse['food'] = 3
+        alice.execute(request)
+        self.assertEqual(alice.game.export_warehouse['food'], 0)
+        alice._release_radio_reservation({'contract_id': contract['id']})
+        self.assertEqual(alice.game.export_warehouse['food'], 3)
+
     def test_contact_delivery_and_replay_across_two_stations(self):
         alice, bob = station("W1AAA", 11), station("W2BBB", 22)
         contact = radio_exchange.encode_message({
@@ -74,9 +90,10 @@ class RadioFlowTests(unittest.TestCase):
         request = next(c for c in bob.radio_contracts[bob.callsign]
                        if c["status"] == "open")
         good, quantity = request["good"], request["quantity"]
-        alice.game.ports["Haven"]["stock"][good] += quantity
+        alice.game.export_warehouse[good] = quantity
         alice.execute({"action": "exchange_reserve", "station": bob.callsign,
                        "contract_id": request["id"]})
+        credits_before_delivery = alice.game.credits
         alice.radio_resources["W3CCC"] = {"richness": "iridium",
             "stock": [1, 2, 3], "production": [2, 3, 4], "observed_at": 100}
         alice.radio_contracts["W3CCC"] = [{"id": "W3CCC-C001", "good": "ore",
@@ -99,6 +116,10 @@ class RadioFlowTests(unittest.TestCase):
         self.assertEqual(bob.game.ports["Haven"]["stock"][good], stock_before + quantity)
         receive(alice, delivery_reply)
         self.assertEqual(alice.radio_transmissions[radio_exchange.decode(delivery)["i"]]["status"], "delivered")
+        expected_reward = min(1500, 100 + 2 * BASE_PRICE[good] * quantity)
+        self.assertEqual(alice.game.credits, credits_before_delivery + expected_reward)
+        receive(alice, delivery_reply)
+        self.assertEqual(alice.game.credits, credits_before_delivery + expected_reward)
         self.assertNotIn(request["id"], alice.radio_reservations)
         self.assertTrue(any(c["status"] == "open" and c["id"] != request["id"]
                             for c in alice.radio_contracts[bob.callsign]))
@@ -141,7 +162,7 @@ class RadioFlowTests(unittest.TestCase):
         contract = {"id": "W2BBB-C0001", "issuer": "W2BBB", "good": "ore",
                     "quantity": 5, "status": "open"}
         alice.radio_contracts["W2BBB"] = [contract]
-        alice.game.ports["Haven"]["stock"]["ore"] += 5
+        alice.game.export_warehouse["ore"] = 5
         alice.execute({"action": "exchange_reserve", "station": "W2BBB",
                        "contract_id": contract["id"]})
         alice.radio_resources["W3CCC"] = {"richness": "iridium", "stock": [1, 2, 3],

@@ -16,7 +16,12 @@ GOODS = ("food", "ore", "fuel", "medicine", "aether", "iridium", "mycelium")
 RARE = ("aether", "iridium", "mycelium")
 BASE_PRICE = {"food": 12, "ore": 20, "fuel": 28, "medicine": 46,
               "aether": 180, "iridium": 220, "mycelium": 160}
-PORT_NAMES = ("Haven", "Kepler", "Vesper", "Prospect", "Meridian")
+PORT_NAMES = ("Haven", "Kepler", "Vesper", "Prospect", "Meridian",
+              "Cinder", "Aurora", "Drift", "Bastion", "Eidolon")
+PORT_ROLES = ("Home hub", "Refinery", "Research enclave", "Mining colony",
+              "Trade exchange", "Industrial furnace", "Medical sanctuary",
+              "Salvage outpost", "Fortress station", "Frontier observatory")
+EQUIPMENT = {"scanner": 220, "shield": 350, "navigator": 420, "defense": 380}
 
 
 class GameError(ValueError):
@@ -47,11 +52,30 @@ class Game:
     hard_mode: bool = False
     galaxies: dict = field(default_factory=dict)
     radio_state: dict = field(default_factory=dict)
+    local_jobs: dict = field(default_factory=dict)
+    next_job_number: int = 1
+    export_warehouse: dict = field(default_factory=dict)
+    price_memory: dict = field(default_factory=dict)
+    visited_ports: list[str] = field(default_factory=lambda: ["Haven"])
+    vip_jobs: dict = field(default_factory=dict)
+    next_vip_number: int = 1
+    factions: dict = field(default_factory=dict)
+    story_stage: int = 0
+    discoveries: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if not self.galaxies:
             self.galaxies = {"home": {"name": self.name,
                 "specialization": self.specialization, "ports": self.ports}}
+        # Expand older five-port saves without touching their existing markets.
+        if self.ports and self.galaxies.get("home", {}).get("ports"):
+            missing = [p for p in PORT_NAMES if p not in self.galaxies["home"]["ports"]]
+            if missing:
+                expanded = Game.new(self.seed)
+                for port in missing:
+                    self.galaxies["home"]["ports"][port] = deepcopy(expanded.ports[port])
+            for i, port in enumerate(PORT_NAMES):
+                self.galaxies["home"]["ports"][port].setdefault("role", PORT_ROLES[i])
         # Migrate version-one single-ship saves without changing their schema.
         if not self.fleet and self.active_ship_id:
             self.ship.setdefault("location", self.location)
@@ -60,10 +84,209 @@ class Game:
             self.fleet = {self.active_ship_id: self.ship}
         for ship in self.fleet.values():
             ship.setdefault("galaxy", "home")
+            ship.setdefault("export_cargo", {})
+            ship.setdefault("equipment", [])
+        for faction in ("traders", "explorers", "diplomats", "security",
+                        "miners", "scientists", "pirates"):
+            self.factions.setdefault(faction, 0)
         if self.active_ship_id not in self.fleet:
             self.active_ship_id = next(iter(self.fleet), "")
         if self.active_ship_id:
             self._bind_ship()
+        if not self.local_jobs:
+            self._replenish_local_jobs()
+        self._replenish_vip_jobs()
+        self.observe_markets()
+
+    def _replenish_vip_jobs(self):
+        for job in self.vip_jobs.values():
+            if job["status"] == "open" and self.tick > job["deadline"]:
+                job["status"] = "expired"
+        while sum(j["status"] == "open" for j in self.vip_jobs.values()) < 2:
+            n = self.next_vip_number
+            self.next_vip_number += 1
+            ports = list(self.ports)
+            if len(ports) < 2:
+                break
+            origin = ports[(n * 3) % len(ports)]
+            destination = ports[(n * 3 + 4) % len(ports)]
+            if origin == destination:
+                destination = ports[(n * 3 + 1) % len(ports)]
+            names = ("Diplomatic envoy", "Medical specialist", "Survey captain", "Trade delegate")
+            self.vip_jobs[f"vip-{n:04d}"] = {"id": f"vip-{n:04d}",
+                "title": names[(n-1) % len(names)], "origin": origin,
+                "destination": destination, "reward": 240 + (n % 4) * 65,
+                "faction": ("diplomats", "scientists", "explorers", "traders")[(n-1) % 4],
+                "deadline": self.tick + 48, "status": "open"}
+
+    def _accept_vip(self, job_id: str) -> dict:
+        self._available()
+        job = self.vip_jobs.get(job_id)
+        if not job or job["status"] != "open" or self.tick > job["deadline"]:
+            raise GameError("VIP mission is unavailable or expired")
+        if self.location != job["origin"]:
+            raise GameError(f"pick up the passenger at {job['origin']}")
+        if self.ship.get("vip_job"):
+            raise GameError("ship already carries a VIP passenger")
+        job["status"] = "aboard"
+        job["ship_id"] = self.active_ship_id
+        self.ship["vip_job"] = job_id
+        self._replenish_vip_jobs()
+        return {"job_id": job_id, "destination": job["destination"], "title": job["title"]}
+
+    def _deliver_vip(self, job_id: str) -> dict:
+        self._available()
+        job = self.vip_jobs.get(job_id)
+        if (not job or job["status"] != "aboard" or
+                job.get("ship_id") != self.active_ship_id or self.ship.get("vip_job") != job_id):
+            raise GameError("VIP is not aboard this ship")
+        if self.location != job["destination"]:
+            raise GameError(f"take the passenger to {job['destination']}")
+        if self.tick > job["deadline"]:
+            raise GameError("VIP mission expired; return the passenger to dispatch")
+        self.ship.pop("vip_job", None)
+        job["status"] = "delivered"
+        payout = job["reward"] + min(100, self.factions["diplomats"] * 10)
+        self.credits += payout
+        self.factions["diplomats"] += 2
+        if job.get("faction") in self.factions and job["faction"] != "diplomats":
+            self.factions[job["faction"]] += 2
+        return {"job_id": job_id, "reward": payout, "title": job["title"]}
+
+    def _buy_equipment(self, item: str) -> dict:
+        self._available()
+        if item not in EQUIPMENT:
+            raise GameError("unknown ship equipment")
+        if item in self.ship.setdefault("equipment", []):
+            raise GameError("ship already has this equipment")
+        if self.credits < EQUIPMENT[item]:
+            raise GameError("insufficient credits for equipment")
+        self.credits -= EQUIPMENT[item]
+        self.ship["equipment"].append(item)
+        return {"item": item, "cost": EQUIPMENT[item], "ship_id": self.active_ship_id}
+
+    def story_objective(self) -> dict:
+        stages = (
+            ("First Signal", "Visit Kepler to investigate a frontier transmission.", "Kepler", 130),
+            ("Medical Relief", "Deliver 2 medicine to Aurora's clinic.", "Aurora", 300),
+            ("The Silent Observatory", "Explore Eidolon to recover a lost survey beacon.", "Eidolon", 350),
+            ("Return to Haven", "Bring the recovered beacon data home to Haven.", "Haven", 500))
+        if self.story_stage >= len(stages):
+            return {"title": "Frontier Signal Complete", "description": "The frontier is open. Continue trading, exploring, and connecting stations.", "complete": True}
+        title, description, port, reward = stages[self.story_stage]
+        return {"title": title, "description": description, "port": port,
+                "reward": reward, "stage": self.story_stage, "complete": False}
+
+    def _complete_story(self) -> dict:
+        self._available()
+        objective = self.story_objective()
+        if objective["complete"]:
+            raise GameError("frontier story already completed")
+        if self.location != objective["port"]:
+            raise GameError(f"story objective requires visiting {objective['port']}")
+        if self.story_stage == 1:
+            if self.cargo["medicine"] < 2:
+                raise GameError("bring 2 medicine for the clinic")
+            self.cargo["medicine"] -= 2
+            eligible = self.ship.setdefault("export_cargo", {})
+            eligible["medicine"] = max(0, eligible.get("medicine", 0) - 2)
+        self.credits += objective["reward"]
+        self.factions["explorers"] += 2
+        self.story_stage += 1
+        return {"title": objective["title"], "reward": objective["reward"],
+                "next": self.story_objective()}
+
+    def _cancel_vip(self, job_id: str) -> dict:
+        self._available()
+        job = self.vip_jobs.get(job_id)
+        if not job or job["status"] != "aboard" or self.ship.get("vip_job") != job_id:
+            raise GameError("VIP is not aboard this ship")
+        self.ship.pop("vip_job", None)
+        job["status"] = "cancelled"
+        return {"job_id": job_id, "status": "cancelled"}
+
+    def route_risk(self, origin: str, destination: str) -> dict:
+        """Deterministic, previewable terrain for each route and market tick."""
+        if origin not in self.ports or destination not in self.ports:
+            raise GameError("invalid route")
+        a, b = sorted((list(self.ports).index(origin), list(self.ports).index(destination)))
+        distance = abs(self.ports[origin]["distance"] - self.ports[destination]["distance"])
+        signature = (a * 19 + b * 31 + self.seed + self.tick // 3) % 11
+        if distance >= 3 and signature in (0, 1, 2, 3):
+            return {"kind": "gas", "label": "Ionized gas cloud", "damage": 4 + distance // 2}
+        if distance >= 2 and signature in (4, 5, 6):
+            return {"kind": "pirates", "label": "Pirate interception", "damage": 3 + distance // 3}
+        return {"kind": "clear", "label": "Clear corridor", "damage": 0}
+
+    def blocked_port(self, now: float | None = None) -> str:
+        """The predictable field moves to the next port every 90 seconds."""
+        now = time.time() if now is None else now
+        return PORT_NAMES[(self.seed + math.floor(now / 90)) % len(PORT_NAMES)]
+
+    def observe_markets(self) -> None:
+        """Remember best actual dockside quotes, not omniscient future prices."""
+        for ship in self.fleet.values():
+            if ship.get("destination") or ship.get("galaxy", "home") != "home":
+                continue
+            port = ship.get("location")
+            if port not in self.ports:
+                continue
+            for good in GOODS:
+                memory = self.price_memory.setdefault(good, {})
+                for action, key, better in (("buy", "lowest_buy", min),
+                                            ("sell", "highest_sell", max)):
+                    quote = self.price(port, good, action)
+                    prior = memory.get(key)
+                    if prior is None or better(quote, prior["price"]) == quote:
+                        memory[key] = {"port": port, "price": quote, "tick": self.tick}
+
+    def _replenish_local_jobs(self):
+        """Keep a small deterministic board of real, one-time freight demand."""
+        for job in self.local_jobs.values():
+            if job["status"] == "open" and self.tick > job["deadline"]:
+                job["status"] = "expired"
+        if len(self.local_jobs) > 100:
+            history = [key for key, job in self.local_jobs.items() if job["status"] != "open"]
+            for key in history[:len(self.local_jobs) - 100]:
+                del self.local_jobs[key]
+        open_jobs = sum(job["status"] == "open" for job in self.local_jobs.values())
+        ports = list(self.ports)
+        while open_jobs < 3 and ports:
+            number = self.next_job_number
+            self.next_job_number += 1
+            origin = ports[(number - 1) % len(ports)]
+            destination = ports[(number + 1) % len(ports)]
+            good = ("food", "ore", "medicine", "fuel")[(number - 1) % 4]
+            quantity = 2 + number % 4
+            distance = abs(self.ports[origin]["distance"] - self.ports[destination]["distance"])
+            reward = max(70, BASE_PRICE[good] * quantity * (150 + distance * 8) // 100)
+            job_id = f"local-{number:04d}"
+            self.local_jobs[job_id] = {"id": job_id, "origin": origin,
+                "destination": destination, "good": good, "quantity": quantity,
+                "reward": reward, "status": "open", "deadline": self.tick + 48}
+            open_jobs += 1
+
+    def _deliver_local(self, job_id: str) -> dict:
+        self._available()
+        job = self.local_jobs.get(job_id)
+        if not job or job["status"] != "open":
+            raise GameError("freight job is no longer available")
+        if self.tick > job["deadline"]:
+            raise GameError("freight job expired")
+        if self.location != job["destination"]:
+            raise GameError(f"deliver at {job['destination']}")
+        if self.cargo[job["good"]] < job["quantity"]:
+            raise GameError("load the requested freight before delivery")
+        self.cargo[job["good"]] -= job["quantity"]
+        eligible = self.ship.setdefault("export_cargo", {})
+        eligible[job["good"]] = max(0, eligible.get(job["good"], 0) - job["quantity"])
+        self.ports[self.location]["stock"][job["good"]] += job["quantity"]
+        self.credits += job["reward"]
+        self.factions["traders"] += 1
+        job["status"] = "delivered"
+        job["completed_tick"] = self.tick
+        self._replenish_local_jobs()
+        return {"job_id": job_id, "reward": job["reward"], "credits": self.credits}
 
     def _bind_ship(self):
         self.ship = self.fleet[self.active_ship_id]
@@ -85,14 +308,34 @@ class Game:
                     ship["destination"] = None
                     ship["arrival_tick"] = None
                     ship.pop("arrival_at", None)
+                    if ship.get("galaxy", "home") == "home" and ship["location"] not in self.visited_ports:
+                        self.visited_ports.append(ship["location"])
+                        explore_bonus = 90 + min(100, self.factions["explorers"] * 10)
+                        self.credits += explore_bonus
+                        self.factions["explorers"] += 1
+                        index = list(self.ports).index(ship["location"])
+                        if index % 3 == 1:
+                            find = {"title": "Abandoned supply cache", "reward": 110 + index * 10}
+                        elif index % 3 == 2:
+                            find = {"title": "Ancient navigation beacon", "reward": 60 + index * 10}
+                        else:
+                            find = {"title": "Uncharted trade outpost", "reward": 80 + index * 10}
+                        self.discoveries[ship["location"]] = find
+                        self.credits += find["reward"]
+                        self.journal.append({"id": "explore-" + ship["location"],
+                            "tick": self.tick, "action": "explore",
+                            "result": {"port": ship["location"], "reward": explore_bonus + find["reward"],
+                                       "discovery": find["title"]}})
         if self.active_ship_id:
             self._bind_ship()
+        self.observe_markets()
 
     def _select_ship(self, ship_id: str) -> dict:
         if ship_id not in self.fleet:
             raise GameError("unknown ship")
         self.active_ship_id = ship_id
         self._bind_ship()
+        self.observe_markets()
         return {"active_ship_id": ship_id, "location": self.location}
 
     def _purchase_ship(self, tier: int = 0, class_id: str | None = None) -> dict:
@@ -139,6 +382,9 @@ class Game:
         ship["arrival_tick"] = None
         destroyed = self.hard_mode and ship["condition"] == 0
         if destroyed:
+            passenger = ship.get("vip_job")
+            if passenger in self.vip_jobs:
+                self.vip_jobs[passenger]["status"] = "lost"
             del self.fleet[ship_id]
             if self.active_ship_id == ship_id:
                 self.active_ship_id = next(iter(self.fleet), "")
@@ -168,9 +414,15 @@ class Game:
             elif i == 3:
                 stock[specialty] = 18
                 production[specialty] = 2
+            elif i >= 5:
+                focus = ("ore", "medicine", "fuel", "food", specialty)[(i-5) % 5]
+                stock[focus] = 85
+                production[focus] = 4
+                consumption[focus] = 0
             ports[port] = {"stock": stock, "production": production,
                            "consumption": consumption,
-                           "distance": abs(i - 0) * 2 + (1 if i else 0)}
+                           "distance": abs(i - 0) * 2 + (1 if i else 0),
+                           "role": PORT_ROLES[i]}
         return cls(seed=seed, name=name, specialization=specialty, ports=ports,
                    cargo={g: 0 for g in GOODS},
                    ship={"name": "Wayfarer", "capacity": 30, "fuel": 40,
@@ -186,7 +438,10 @@ class Game:
         # buying and immediately reselling for a profit in the same port.
         pressure = max(50, min(200, 150 - stock))
         midpoint = max(1, BASE_PRICE[good] * pressure // 100)
-        multiplier = 110 if action == "buy" else (104 if self.hard_mode else 90)
+        multiplier = 110 if action == "buy" else ((104 if self.hard_mode else 90) + min(10, self.factions.get("traders", 0) // 2))
+        if action == "buy" and good in ("ore", "medicine"):
+            faction = "miners" if good == "ore" else "scientists"
+            multiplier -= min(8, self.factions.get(faction, 0) // 2)
         return max(1, midpoint * multiplier // 100)
 
     def _check_port_good(self, port: str, good: str) -> None:
@@ -252,6 +507,20 @@ class Game:
                 result = self._cancel_contract(**kwargs)
             elif action == "reclaim_contract":
                 result = self._reclaim_contract(**kwargs)
+            elif action == "deliver_local":
+                result = self._deliver_local(**kwargs)
+            elif action == "unload_export":
+                result = self._unload_export(**kwargs)
+            elif action == "accept_vip":
+                result = self._accept_vip(**kwargs)
+            elif action == "deliver_vip":
+                result = self._deliver_vip(**kwargs)
+            elif action == "cancel_vip":
+                result = self._cancel_vip(**kwargs)
+            elif action == "buy_equipment":
+                result = self._buy_equipment(**kwargs)
+            elif action == "complete_story":
+                result = self._complete_story()
             else:
                 raise GameError(f"unknown action: {action}")
         except (GameError, TypeError, KeyError) as exc:
@@ -282,28 +551,81 @@ class Game:
             stock[good] -= amount
             self.cargo[good] += amount
             self.credits -= total
+            if good == "ore" and self.location in ("Prospect", "Cinder"):
+                self.factions["miners"] += 1
+            if good == "medicine" and self.location in ("Vesper", "Aurora"):
+                self.factions["scientists"] += 1
+            if self.location != "Haven":
+                eligible = self.ship.setdefault("export_cargo", {})
+                eligible[good] = eligible.get(good, 0) + amount
         else:
             if self.cargo[good] < amount:
                 raise GameError("insufficient cargo")
             self.cargo[good] -= amount
             stock[good] += amount
             self.credits += total
+            eligible = self.ship.setdefault("export_cargo", {})
+            eligible[good] = max(0, eligible.get(good, 0) - amount)
         return {"action": action, "good": good, "amount": amount,
                 "unit_price": unit, "total": total, "credits": self.credits}
 
-    def _travel(self, destination: str) -> dict:
+    def _unload_export(self, good: str, amount: int) -> dict:
+        self._available()
+        if self.location != "Haven":
+            raise GameError("return to Haven to unload export freight")
+        if good not in GOODS or type(amount) is not int or amount <= 0:
+            raise GameError("choose a valid good and positive quantity")
+        eligible = self.ship.setdefault("export_cargo", {})
+        if amount > self.cargo.get(good, 0) or amount > eligible.get(good, 0):
+            raise GameError("export freight must have been purchased outside Haven")
+        self.cargo[good] -= amount
+        eligible[good] -= amount
+        self.export_warehouse[good] = self.export_warehouse.get(good, 0) + amount
+        return {"good": good, "amount": amount,
+                "warehouse": self.export_warehouse[good]}
+
+    def _travel(self, destination: str, pirate_stance: str = "pay") -> dict:
         self._available()
         if destination not in self.ports or destination == self.location:
             raise GameError("invalid destination")
+        if pirate_stance not in ("pay", "evade", "fight"):
+            raise GameError("invalid pirate strategy")
+        equipment = self.ship.get("equipment", [])
+        blocked = destination == self.blocked_port()
+        if blocked and "navigator" not in equipment:
+            raise GameError(f"Asteroid field blocks the direct approach to {destination}; wait for the field to orbit onward")
         distance = abs(self.ports[destination]["distance"] -
                        self.ports[self.location]["distance"])
-        fuel_cost = max(2, distance * 2)
+        risk = self.route_risk(self.location, destination)
+        fuel_cost = max(2, distance * 2) + (4 if blocked else 0) + (4 if risk["kind"] == "pirates" and pirate_stance == "evade" else 0)
         if fuel_cost > self.ship["fuel"]:
             raise GameError("insufficient ship fuel")
         if self.ship["condition"] < 10:
             raise GameError("repair ship before traveling")
         self.ship["fuel"] -= fuel_cost
-        self.ship["condition"] = max(0, self.ship["condition"] - max(1, distance))
+        mitigation = max(0, int(self.ship.get("modem_tier", 0)) * 2)
+        if risk["kind"] == "gas" and "shield" in equipment:
+            mitigation += 6
+        if risk["kind"] == "pirates":
+            if pirate_stance == "evade":
+                mitigation += 2
+                risk = {**risk, "outcome": "Evaded pirates using extra fuel"}
+            elif pirate_stance == "fight":
+                mitigation += (7 if "defense" in equipment else 0) + min(5, self.factions.get("security", 0) // 3)
+                risk = {**risk, "damage": risk["damage"] + (0 if "defense" in equipment else 5),
+                        "outcome": "Pirates repelled" if "defense" in equipment else "Hard-fought escape"}
+                self.factions["security"] += 1
+        hazard_damage = max(0, risk["damage"] - mitigation)
+        self.ship["condition"] = max(0, self.ship["condition"] - max(1, distance) - hazard_damage)
+        if risk["kind"] == "pirates" and pirate_stance == "pay":
+            # A capped pirate toll makes a dangerous route matter without
+            # deleting a reserved cargo manifest or creating a dead-end.
+            toll = min(self.credits, max(0, 10 + distance * 3 - self.factions.get("pirates", 0) * 2))
+            self.credits -= toll
+            risk = {**risk, "toll": toll}
+            self.factions["pirates"] += 1
+        if blocked:
+            risk = {**risk, "navigator_bypass": True}
         speed = max(1, int(self.ship.get("speed", 1)))
         travel_seconds = min(10, max(1, math.ceil(distance * 2 / speed)))
         arrival_at = time.time() + travel_seconds
@@ -312,7 +634,8 @@ class Game:
         self.ship["arrival_at"] = arrival_at
         return {"destination": destination, "arrival_tick": self.tick,
                 "arrival_at": arrival_at, "fuel_cost": fuel_cost,
-                "travel_seconds": travel_seconds}
+                "travel_seconds": travel_seconds, "hazard": risk,
+                "hazard_damage": hazard_damage}
 
     def _jump(self, galaxy: str, destination: str, voyage_id: str) -> dict:
         self._available()
@@ -400,6 +723,7 @@ class Game:
                         port["stock"][good] + port["production"][good] -
                         port["consumption"][good]))
             self._all_arrivals()
+        self._replenish_local_jobs()
         return {"tick": self.tick, "location": self.location,
                 "in_transit": self.ship["destination"] is not None}
 
@@ -427,6 +751,8 @@ class Game:
             self.tick += elapsed
             self._all_arrivals()
             self.clock_epoch = epoch
+            self._replenish_local_jobs()
+            self.observe_markets()
         return {"epoch": self.clock_epoch, "advanced": elapsed, "tick": self.tick}
 
     def _repair(self) -> dict:

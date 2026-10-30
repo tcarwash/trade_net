@@ -17,7 +17,7 @@ from copy import deepcopy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .engine import Game, GameError, GOODS
+from .engine import Game, GameError, GOODS, BASE_PRICE
 from .network import Network
 from . import modems
 from .data2g import Data2GClient, Data2GError
@@ -646,8 +646,19 @@ class App:
         if envelope.get("ok", True):
             reward_value = envelope.get("cr", 0)
             reward = reward_value if type(reward_value) is int else 0
-            self.game.credits += max(0, min(25, reward,
-                                             math.ceil(len(payload) / 64)))
+            # A verified, contracted RF delivery is the premium career path.
+            # Compute the settlement locally from reserved goods; never trust
+            # an arbitrary credit amount advertised in a received ACK.
+            if job.get("purpose") == "delivery":
+                reservation = self.radio_reservations.get(job.get("contract_id"))
+                if reservation:
+                    job["reward"] = min(1500, 100 +
+                        BASE_PRICE[reservation["good"]] * reservation["quantity"] * 2)
+                    self.game.credits += job["reward"]
+            else:
+                job["reward"] = max(0, min(25, reward,
+                                            math.ceil(len(payload) / 64)))
+                self.game.credits += job["reward"]
             self.radio_contacts.setdefault(envelope["f"], time.time())
             contracts = radio_exchange.read_contracts(envelope.get("c", []), envelope["f"])
             if job.get("purpose") == "delivery":
@@ -678,7 +689,7 @@ class App:
     def _release_radio_reservation(self, job):
         reservation = self.radio_reservations.pop(job.get("contract_id"), None)
         if reservation:
-            stock = self.game.ports["Haven"]["stock"]
+            stock = self.game.export_warehouse
             stock[reservation["good"]] = stock.get(reservation["good"], 0) + reservation["quantity"]
 
     def _sync_discovered_galaxies(self):
@@ -793,6 +804,7 @@ class App:
         return {"game": game_state, "network": {"local_id": self.callsign},
                 "navigation": self._navigation(),
                 "ship_classes": deepcopy(list(getattr(modems, "SHIPS", ()))),
+                "story_objective": self.game.story_objective(),
                 "modem_catalog": deepcopy(self.modem_catalog),
                 "radio_transmissions": [{**{key: deepcopy(value) for key, value in job.items()
                                             if key not in ("payload_hex", "repair_indices")},
@@ -809,6 +821,10 @@ class App:
                 "clock": {"epoch": self.game.clock_epoch,
                           "tick_seconds": self.game.tick_seconds,
                           "next_boundary_utc": (self.game.clock_epoch + 1) * self.game.tick_seconds},
+                "asteroid_field": {"blocked_port": self.game.blocked_port(),
+                    "seconds_remaining": 90 - int(time.time()) % 90},
+                "route_hazards": {port: self.game.route_risk(self.game.location, port)
+                                  for port in self.game.ports if port != self.game.location},
                 "goods": GOODS,
                 "prices": {port: {good: {"buy": self.game.price(port, good, "buy"),
                                             "sell": self.game.price(port, good, "sell")}
@@ -881,6 +897,8 @@ class App:
                 if (not self.game.active_ship_id or ship.get("condition", 0) < 10 or
                         ship.get("radio_mission")):
                     raise GameError("Select a ready ship with at least 10 condition and no active transmission.")
+                if ship.get("location") != "Haven" or ship.get("destination"):
+                    raise GameError("Radio expeditions depart only from your Haven home base.")
                 if purpose == "delivery" and not reservation.get("payload_hex"):
                     reservation["payload_hex"] = payload.hex()
                     self.persist()
@@ -936,12 +954,12 @@ class App:
                 raise GameError("Complete first contact and choose an active partner contract.")
             if contract_id in self.radio_reservations:
                 raise GameError("This contract already has goods reserved.")
+            if self.game.ship.get("location") != "Haven" or self.game.ship.get("destination"):
+                raise GameError("Return to Haven to prepare a radio delivery.")
             good, quantity = contract["good"], contract["quantity"]
-            if self.game.ports["Haven"]["stock"].get(good, 0) < quantity:
-                raise GameError("Your Haven does not have enough of the requested goods.")
-            if self.game.ship.get("destination") or self.game.ship.get("radio_mission"):
-                raise GameError("Dock the selected ship before preparing a delivery.")
-            self.game.ports["Haven"]["stock"][good] -= quantity
+            if self.game.export_warehouse.get(good, 0) < quantity:
+                raise GameError("Not enough imported freight in the Haven export warehouse. Buy it at another starport, fly home, and unload it first.")
+            self.game.export_warehouse[good] -= quantity
             self.radio_reservations[contract_id] = {"station": station, "good": good,
                 "quantity": quantity, "message_id": uuid.uuid4().hex[:16], "prepared_at": time.time()}
             result = {"contract_id": contract_id, "good": good, "quantity": quantity, "status": "reserved"}

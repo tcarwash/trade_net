@@ -57,6 +57,23 @@ class BrowserUIContractTests(unittest.TestCase):
         self.assertIn('rel="manifest"', self.browser_html())
         self.assertTrue((root / "apple-touch-icon.png").is_file())
 
+    def test_milestone_dialog_and_first_trade_coach(self):
+        html = self.browser_html()
+        parser = _Ids()
+        parser.feed(html)
+        self.assertTrue({"momentDialog", "momentArt", "momentTitle", "momentDescription",
+                         "momentReward", "momentContinue", "momentClose", "guideNext",
+                         "guideProgress"}.issubset(parser.ids))
+        for marker in ("dialog.showModal()", "scanGameplayMoments()", "seenJournal.add(entry.id)",
+                       "if(!momentsReady)", "previous==='awaiting_ack'",
+                       "entry.action==='deliver_vip'", "entry.action==='explore'",
+                       "entry.action==='complete_story'", "guideStep===1",
+                       "guideStep===2", "guideStep===3", "guideStep===4",
+                       "guideStep===5", "sessionStorage.setItem('trade-net-guide-step'",
+                       "prefers-reduced-motion:reduce"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, html)
+
 
 if __name__ == "__main__":
     unittest.main()

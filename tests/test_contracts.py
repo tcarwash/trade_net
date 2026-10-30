@@ -78,17 +78,16 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(self.game.cargo[c["good"]], c["quantity"])
         self.assertEqual(c["status"], "cancelled")
 
-    def test_web_app_persists_contract_and_network(self):
+    def test_web_app_persists_current_local_contracts_and_fleet_orders(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "galaxy.json"
             app = App(path, 42, "AG7SU")
-            c = next(c for c in app.game.contracts.values() if c["good"] == "food")
-            app.execute({"action": "buy", "id": "buy", "args": {"good": "food", "amount": c["quantity"]}})
-            app.execute({"action": "accept_contract", "id": "accept", "args": {"contract_id": c["id"]}})
-            app.execute({"action": "dispatch_contract", "contract_id": c["id"], "loss": 0})
+            initial_jobs = list(app.game.local_jobs)
+            app.execute({"action": "set_fleet_reserve", "id": "reserve", "args": {"credits": 750}})
             loaded = App(path, 42, "AG7SU")
-            self.assertEqual(loaded.game.contracts[c["id"]]["status"], "settled")
-            self.assertIn("AG7SU->" + c["destination"], loaded.net.links)
+            self.assertEqual(loaded.game.fleet_credit_reserve, 750)
+            self.assertEqual(list(loaded.game.local_jobs), initial_jobs)
+            self.assertEqual(loaded.callsign, "AG7SU")
 
 
 if __name__ == "__main__":

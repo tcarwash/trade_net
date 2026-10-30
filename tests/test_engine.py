@@ -228,7 +228,9 @@ class EconomyTests(unittest.TestCase):
         game = Game.new(12)
         trip = game.command("t1", "travel", destination="Kepler")
         self.assertEqual(game.ship["destination"], "Kepler")
-        game.command("w1", "wait", ticks=trip["arrival_tick"])
+        self.assertGreater(trip["travel_seconds"], 0)
+        game.ship["arrival_at"] = 0  # Deterministic real-time arrival without sleeping.
+        game._all_arrivals()
         self.assertEqual(game.location, "Kepler")
         self.assertIsNone(game.ship["destination"])
         with tempfile.TemporaryDirectory() as directory:
@@ -246,7 +248,8 @@ class EconomyTests(unittest.TestCase):
     def test_refuel_uses_port_stock_and_credits(self):
         game = Game.new()
         game.command("trip", "travel", destination="Kepler")
-        game.command("arrive", "wait", ticks=3)
+        game.ship["arrival_at"] = 0
+        game._all_arrivals()
         before = game.ports["Kepler"]["stock"]["fuel"]
         old_fuel = game.ship["fuel"]
         old_credits = game.credits
@@ -261,8 +264,8 @@ class EconomyTests(unittest.TestCase):
         upgrade = fast.command("ship", "buy_ship")
         self.assertEqual(upgrade["max_bandwidth_hz"], 1200)
         self.assertEqual(fast.ship["speed"], 2)
-        slow_eta = slow.command("slow", "travel", destination="Meridian")["arrival_tick"]
-        fast_eta = fast.command("fast", "travel", destination="Meridian")["arrival_tick"]
+        slow_eta = slow.command("slow", "travel", destination="Meridian")["travel_seconds"]
+        fast_eta = fast.command("fast", "travel", destination="Meridian")["travel_seconds"]
         self.assertLess(fast_eta, slow_eta)
 
     def test_real_time_utc_epoch_catchup(self):
@@ -288,16 +291,19 @@ class EconomyTests(unittest.TestCase):
         self.assertEqual(game.fleet[second]["modem_tier"], 1)
         game.command("switch", "select_ship", ship_id=second)
         self.assertEqual(game.cargo["food"], 0)
-        game.command("voyage", "travel", destination="Kepler")
+        destination = next(port for port in game.ports
+                           if port not in ("Haven", game.blocked_port()))
+        game.command("voyage", "travel", destination=destination)
+        game.fleet[second]["arrival_at"] = 0
         game.command("switch-back", "select_ship", ship_id=first)
         self.assertEqual(game.location, "Haven")
         self.assertEqual(game.cargo["food"], 1)
         game.command("tick", "wait", ticks=3)
-        self.assertEqual(game.fleet[second]["location"], "Kepler")
+        self.assertEqual(game.fleet[second]["location"], destination)
         reloaded = Game.from_dict(game.to_dict())
-        self.assertEqual(reloaded.fleet[second]["location"], "Kepler")
+        self.assertEqual(reloaded.fleet[second]["location"], destination)
         reloaded.command("select-again", "select_ship", ship_id=second)
-        self.assertEqual(reloaded.location, "Kepler")
+        self.assertEqual(reloaded.location, destination)
 
     def test_legacy_single_ship_save_migrates(self):
         old = Game.new(3).to_dict()

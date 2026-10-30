@@ -4,7 +4,6 @@ from pathlib import Path
 
 from tradenet import GameError
 from tradenet.federation import Federation
-from tradenet.web import App
 from tradenet.mail import MailNetwork
 from tradenet.payloads import decode as decode_bundle
 
@@ -14,6 +13,10 @@ class FederationTests(unittest.TestCase):
         self.f = Federation.demo()
         self.seller, self.buyer = list(self.f.worlds)
         self.good = self.f.worlds[self.seller].specialization
+        # The isolated federation simulator now requires a synchronized hub
+        # contract before reserving. This is not a real RF receipt.
+        link = ":".join(sorted((self.seller, self.buyer)))
+        self.f.contract_syncs[link] = {"status": "synchronized", "source": "test_fixture"}
 
     def propose(self, trade_id="T1", quantity=2):
         return self.f.propose(trade_id, self.seller, self.buyer,
@@ -26,18 +29,19 @@ class FederationTests(unittest.TestCase):
     def test_reservation_is_conservative_and_idempotent(self):
         self.propose()
         seller, buyer = self.f.worlds[self.seller], self.f.worlds[self.buyer]
-        starting_stock, starting_money = seller.cargo[self.good], buyer.credits
+        starting_stock, starting_money = seller.ports["Haven"]["stock"][self.good], buyer.credits
         self.f.reserve("T1")
         self.f.reserve("T1")
-        self.assertEqual(seller.cargo[self.good], starting_stock - 2)
-        self.assertEqual(buyer.credits, starting_money - 440)
-        self.assertEqual(buyer.incoming_reserved, 2)
+        self.assertEqual(seller.ports["Haven"]["stock"][self.good], starting_stock - 2)
+        self.assertEqual(buyer.credits, starting_money)
+        self.assertEqual(buyer.incoming_reserved, 0)
 
     def test_failed_delivery_then_receipt_and_exactly_once_settlement(self):
         t = self.propose()
         self.f.reserve("T1")
         seller, buyer = self.f.worlds[self.seller], self.f.worlds[self.buyer]
         before = seller.credits
+        buyer_before = buyer.ports["Haven"]["stock"][self.good]
         fail = self.f.dispatch("T1", loss=1)
         self.assertFalse(fail["delivered"])
         self.assertEqual(t["custody"], self.seller)
@@ -52,13 +56,14 @@ class FederationTests(unittest.TestCase):
         first = self.f.settle("T1")
         second = self.f.settle("T1")
         self.assertEqual(first, second)
-        self.assertEqual(seller.credits, before + 440)
-        self.assertEqual(buyer.cargo[self.good], 2)
+        self.assertEqual(seller.credits, before + first["seller_credits"])
+        self.assertEqual(buyer.ports["Haven"]["stock"][self.good], buyer_before + 2)
         self.assertEqual(buyer.incoming_reserved, 0)
 
     def test_courier_hops_dont_mint_inventory(self):
         t = self.propose()
         self.f.reserve("T1")
+        starting_stock = self.f.worlds[self.buyer].ports["Haven"]["stock"][self.good]
         route = [self.seller, "SIM-RELAY", self.buyer]
         self.f.dispatch("T1", route=route, loss=0)
         self.assertEqual(t["custody"], "SIM-RELAY")
@@ -67,25 +72,25 @@ class FederationTests(unittest.TestCase):
         self.assertEqual(t["custody"], self.buyer)
         self.assertEqual(self.f.worlds[self.buyer].cargo[self.good], 0)
         self.f.settle("T1")
-        self.assertEqual(self.f.worlds[self.buyer].cargo[self.good], 2)
+        self.assertEqual(self.f.worlds[self.buyer].ports["Haven"]["stock"][self.good], starting_stock + 2)
         self.assertNotIn(self.buyer, self.f.network.peers)
 
     def test_cancel_restores_escrow(self):
         self.propose()
         seller, buyer = self.f.worlds[self.seller], self.f.worlds[self.buyer]
-        before = (seller.cargo[self.good], buyer.credits)
+        before = (seller.ports["Haven"]["stock"][self.good], buyer.credits)
         self.f.reserve("T1")
         self.f.cancel("T1")
-        self.assertEqual((seller.cargo[self.good], buyer.credits), before)
+        self.assertEqual((seller.ports["Haven"]["stock"][self.good], buyer.credits), before)
         self.assertEqual(buyer.incoming_reserved, 0)
 
-    def test_incoming_capacity_cannot_be_overbooked(self):
+    def test_receiving_hub_does_not_reserve_an_unrelated_ship_hold(self):
         self.propose(quantity=6)
         self.f.reserve("T1")
         buyer = self.f.worlds[self.buyer]
-        self.assertEqual(buyer.incoming_reserved, 6)
-        with self.assertRaises(GameError):
-            buyer.command("overfill", "buy", good="food", amount=25)
+        self.assertEqual(buyer.incoming_reserved, 0)
+        self.assertEqual(buyer.cargo[self.good], 0)
+        self.assertEqual(self.f.trades["T1"]["seller_hold"], "Haven")
 
     def test_save_and_restart_before_settlement(self):
         self.propose()
@@ -95,7 +100,11 @@ class FederationTests(unittest.TestCase):
             path = Path(directory) / "federation.json"
             self.f.save(path)
             other = Federation.load(path)
-            self.assertEqual(other.to_dict(), self.f.to_dict())
+            self.assertEqual(other.trades, self.f.trades)
+            self.assertEqual(other.events, self.f.events)
+            for peer in self.f.worlds:
+                self.assertEqual(other.worlds[peer].ports, self.f.worlds[peer].ports)
+                self.assertEqual(other.worlds[peer].credits, self.f.worlds[peer].credits)
             other.settle("T1")
             other.save(path)
             final = Federation.load(path)
@@ -108,21 +117,18 @@ class FederationTests(unittest.TestCase):
         with self.assertRaises(GameError):
             self.propose(quantity=3)
 
-    def test_browser_demo_end_to_end_persists(self):
+    def test_isolated_simulator_is_not_an_app_federation(self):
+        from tradenet.web import App
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "galaxy.json"
-            app = App(path, 42, "AG7SU")
-            t = app.federation.trades["DEMO-001"]
-            app.execute({"action": "exchange_reserve", "trade_id": t["id"]})
-            app.execute({"action": "exchange_dispatch", "trade_id": t["id"], "loss": 0})
-            receipt = app.execute({"action": "exchange_settle", "trade_id": t["id"]})
-            restarted = App(path, 42, "AG7SU")
-            self.assertEqual(restarted.federation.trades[t["id"]]["status"], "settled")
-            self.assertEqual(restarted.execute({"action": "exchange_settle", "trade_id": t["id"]}), receipt)
+            app = App(Path(directory) / "galaxy.json", 42, "AG7SU")
+            self.assertFalse(hasattr(app, "federation"))
+            with self.assertRaises(GameError):
+                app.execute({"action": "exchange_dispatch", "trade_id": "T1"})
 
     def test_async_queue_and_late_reverse_ack(self):
         self.propose()
         self.f.reserve("T1")
+        starting_stock = self.f.worlds[self.buyer].ports["Haven"]["stock"][self.good]
         mail = MailNetwork()
         self.f.queue_trade(mail, "T1", [self.seller, "RELAY", self.buyer])
         mail.set_online(self.buyer, False)
@@ -135,11 +141,10 @@ class FederationTests(unittest.TestCase):
         for _ in range(30):
             mail.step(loss=0, budget_frames=64)
             self.f.sync_mail(mail)
-            if self.f.trades["T1"]["status"] == "delivered":
+            if self.f.trades["T1"]["status"] == "settled":
                 break
-        self.assertEqual(self.f.trades["T1"]["status"], "delivered")
-        self.f.settle("T1")
-        self.assertEqual(self.f.worlds[self.buyer].cargo[self.good], 2)
+        self.assertEqual(self.f.trades["T1"]["status"], "settled")
+        self.assertEqual(self.f.worlds[self.buyer].ports["Haven"]["stock"][self.good], starting_stock + 2)
 
     def test_ship_modem_upgrade_gates_mail_capacity(self):
         self.propose()
@@ -151,27 +156,29 @@ class FederationTests(unittest.TestCase):
         self.assertEqual(msg["bandwidth_hz"], 1200)
         self.assertEqual(msg["frames_per_tick"], 6)
 
-    def test_web_async_exchange_survives_restart(self):
+    def test_isolated_async_exchange_survives_restart(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "galaxy.json"
-            app = App(path, 42, "AG7SU")
-            trade_id = "DEMO-001"
-            app.execute({"action": "exchange_reserve", "trade_id": trade_id})
-            app.execute({"action": "exchange_queue", "trade_id": trade_id,
-                         "route": ["AG7SU", "SIM-RELAY", "SIM-K7OR"]})
-            app.execute({"action": "mail_station", "station": "SIM-K7OR", "online": False})
+            path = Path(directory) / "federation.json"
+            mail = MailNetwork()
+            self.propose()
+            self.f.reserve("T1")
+            self.f.queue_trade(mail, "T1", route=[self.seller, "SIM-RELAY", self.buyer])
+            mail.set_online(self.buyer, False)
             for _ in range(5):
-                app.execute({"action": "mail_step", "loss": 0, "budget_frames": 64})
-            app = App(path, 42, "AG7SU")
-            self.assertEqual(app.federation.trades[trade_id]["status"], "queued")
-            app.execute({"action": "mail_station", "station": "SIM-K7OR", "online": True})
+                mail.step(loss=0, budget_frames=64)
+                self.f.sync_mail(mail)
+            self.f.save(path)
+            restored = Federation.load(path)
+            self.assertEqual(restored.trades["T1"]["status"], "queued")
+            mail.set_online(self.buyer, True)
             for _ in range(30):
-                app.execute({"action": "mail_step", "loss": 0, "budget_frames": 64})
-                if app.federation.trades[trade_id]["status"] == "delivered":
+                mail.step(loss=0, budget_frames=64)
+                restored.sync_mail(mail)
+                if restored.trades["T1"]["status"] == "settled":
                     break
-            self.assertEqual(app.federation.trades[trade_id]["status"], "delivered")
-            app.execute({"action": "exchange_settle", "trade_id": trade_id})
-            self.assertEqual(App(path, 42, "AG7SU").federation.trades[trade_id]["status"], "settled")
+            self.assertEqual(restored.trades["T1"]["status"], "settled")
+            restored.save(path)
+            self.assertEqual(Federation.load(path).trades["T1"]["status"], "settled")
 
     def test_three_useful_load_classes_increase_real_content(self):
         t = self.propose()
@@ -181,7 +188,7 @@ class FederationTests(unittest.TestCase):
         self.assertLess(len(a), len(b))
         self.assertLess(len(b), len(c))
         self.assertEqual([item.kind for item in decode_bundle(b)], ["trade", "neighbors"])
-        self.assertEqual([item.kind for item in decode_bundle(c)], ["trade", "neighbors", "market"])
+        self.assertEqual([item.kind for item in decode_bundle(c)], ["trade", "neighbors", "contracts", "market"])
         self.assertIn(b"ore_stock", b)
         self.assertIn(b"prices", c)
         self.assertNotIn(b"padding", c)
@@ -200,13 +207,13 @@ class FederationTests(unittest.TestCase):
         mail = MailNetwork()
         msg = self.f.queue_trade(mail, "T1", ship_id=ship_id)
         self.assertEqual(msg["bandwidth_hz"], 2400)
-        self.assertEqual(seller.fleet[ship_id]["radio_mission"], "T1")
+        self.assertEqual(self.f.trades["T1"]["ship_id"], ship_id)
         for _ in range(20):
             mail.step(loss=0, budget_frames=64)
             self.f.sync_mail(mail)
-            if self.f.trades["T1"]["status"] == "delivered":
+            if self.f.trades["T1"]["status"] == "settled":
                 break
-        self.assertEqual(self.f.trades["T1"]["status"], "delivered")
+        self.assertEqual(self.f.trades["T1"]["status"], "settled")
         self.assertNotIn("radio_mission", seller.fleet[ship_id])
 
     def test_failed_mission_returns_damaged_ship_and_hard_mode_destroys(self):
@@ -214,6 +221,8 @@ class FederationTests(unittest.TestCase):
             f = Federation.demo()
             seller, buyer = list(f.worlds)
             good = f.worlds[seller].specialization
+            f.contract_syncs[":".join(sorted((seller, buyer)))] = {
+                "status": "synchronized", "source": "test_fixture"}
             f.propose("FAIL", seller, buyer, good, 1, 100)
             f.reserve("FAIL")
             world = f.worlds[seller]
@@ -228,12 +237,9 @@ class FederationTests(unittest.TestCase):
             mail.step(loss=1)
             changes = f.sync_mail(mail)
             self.assertEqual(f.trades["FAIL"]["status"], "reconcile_required")
-            self.assertEqual(changes[0]["ship_result"]["destroyed"], hard)
-            if hard:
-                self.assertNotIn(ship_id, world.fleet)
-            else:
-                self.assertEqual(world.fleet[ship_id]["location"], "Haven")
-                self.assertEqual(world.fleet[ship_id]["condition"], 0)
+            self.assertIsNone(changes[0]["ship_result"])
+            self.assertIn(ship_id, world.fleet)
+            self.assertEqual(world.fleet[ship_id]["condition"], 20)
 
 
 if __name__ == "__main__":

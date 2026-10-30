@@ -178,7 +178,7 @@ class BrowserUIContractTests(unittest.TestCase):
 
     def test_fleet_crew_management_is_visible_and_state_driven(self):
         html = self.browser_html()
-        for marker in ("function renderFleetOperations(){", "renderFleetOperations();renderFleetAutomation();map()",
+        for marker in ("function renderFleetOperations(){", "renderFleetOperations();renderFleetAutomation();renderFleetDoctrine();map()",
                        "state.crew_candidates", "state.crew_roles", "crewForShip(",
                        "fleet-roster-grid", "recruit-list", "crew-list",
                        "command('hire_crew'", "command('assign_crew'",
@@ -197,6 +197,17 @@ class BrowserUIContractTests(unittest.TestCase):
                        "autoRouteKind", "Haven procurement"):
             with self.subTest(marker=marker):
                 self.assertIn(marker.lower(), html.lower())
+
+    def test_standing_fleet_doctrine_is_accessible_and_purely_local(self):
+        html = self.browser_html()
+        for marker in ("function renderFleetDoctrine(){", "fleetDoctrine",
+                       "doctrineReserve", "doctrineSource", "doctrineTarget",
+                       "doctrineSavePolicy", "doctrineSaveCaptain",
+                       "command('set_fleet_reserve'", "command('set_warehouse_target'",
+                       "command('set_fleet_policy'", "command('designate_captain'",
+                       "No standing order can key a radio"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, html)
 
     def test_compact_beacon_controls_distinguish_preview_from_live_radio(self):
         html = self.browser_html()

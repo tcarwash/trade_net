@@ -213,6 +213,16 @@ antagonizing them in subsequent encounters.
 - [x] Idle, unassigned empty vessels gather at Haven on safe local routes,
       without taking over the selected ship or moving passengers and cargo.
       Dangerous and obstructed returns wait for a safer opportunity.
+- [x] Fleet dispatch doctrine: persistent per-resource Haven warehouse targets,
+      known supplier markets, bounded automatically assigned supply runs and a
+      fleet-wide minimum-credit reserve. Outstanding orders count against each
+      stock target so multiple vessels do not over-procure.
+- [x] Per-vessel idle home-return and optional repair/refuel policies using real
+      local fuel stock, operating credits and per-hull service thresholds.
+- [x] Captain designation from existing shipboard specialists, command XP from
+      completed automated runs, capped command levels and repair discounts.
+- [x] Fleet doctrine controls and progress display on mobile and desktop, with
+      persisted policy and captain choice, plus browser regression coverage.
 - [x] Keep actual RF transmissions outside autopilot; ◇ local route orders
       cannot queue ◉ intergalactic radio traffic.
 

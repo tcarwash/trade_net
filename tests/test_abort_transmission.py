@@ -1,5 +1,4 @@
-"""Single-authority simulator cancellation; no modem or distributed settlement."""
-import hashlib
+"""Mail cancellation and current radio timeout recovery."""
 import tempfile
 import unittest
 from copy import deepcopy
@@ -39,47 +38,32 @@ class AbortTests(unittest.TestCase):
         self.path = Path(self.directory.name) / "game.json"
         self.app = App(self.path, 42, "AG7SU")
 
-    def jump(self, identity="trip", galaxy="SIM-K7OR", destination="Kepler"):
-        return self.app.execute({"id": identity, "action": "jump",
-            "args": {"galaxy": galaxy, "destination": destination}})
+    def test_expired_radio_job_damages_ship_and_persists_no_fake_receipt(self):
+        original = self.app.game.ship["condition"]
+        job = {"id": "radio-timeout", "message_id": "contact-1", "purpose": "contact",
+               "status": "awaiting_ack", "ship_id": self.app.game.ship["id"],
+               "origin": "Haven", "destination": "K7OR", "timeout_at": 100}
+        self.app.radio_transmissions[job["id"]] = job
+        self.app.game.ship["radio_mission"] = job["id"]
+        self.app._expire_radio_transmissions(101)
+        self.assertEqual(job["status"], "failed")
+        self.assertEqual(self.app.game.ship["condition"], original - 10)
+        self.assertFalse(self.app.radio_contacts)
+        restored = App(self.path, 42, "AG7SU")
+        self.assertEqual(restored.radio_transmissions[job["id"]]["status"], "failed")
+        self.assertEqual(restored.game.ship["condition"], original - 10)
 
-    def abort(self, identity="abort", **extra):
-        return self.app.execute({"id": identity, "action": "abort_transmission", **extra})
-
-    def test_early_abort_returns_same_ship_without_refunds_or_later_arrival(self):
-        self.app.game.command("load", "buy", good="food", amount=2)
-        before = deepcopy(self.app.game.ship)
-        credits = self.app.game.credits
-        self.jump()
-        result = self.abort()
-        self.assertEqual(result, {"voyage_id": "voyage:trip", "ship_id": "ship-1",
-            "damage": 0, "condition": 100, "destroyed": False, "returned_to": "Haven",
-            "origin_galaxy": "home", "penalty_applied": False})
-        self.assertEqual(self.abort(), result)
-        self.assertEqual(self.app.game.ship["cargo"], before["cargo"])
-        self.assertEqual(self.app.game.credits, credits)
-        self.assertEqual(self.app.game.ship["fuel"], before["fuel"] - 10)
-        for key in ("voyage", "voyage_manifest", "radio_mission"):
-            self.assertNotIn(key, self.app.game.ship)
-        attempts = self.app.mail.attempts
-        for _ in range(20):
-            self.app.execute({"action": "mail_step", "loss": 0})
-        self.app.sync_clock((self.app.game.clock_epoch + 100) * 300)
-        self.assertEqual(self.app.mail.attempts, attempts)
-        self.assertEqual(self.app.game.ship["galaxy"], "home")
-        self.assertEqual(self.app.game.ship["location"], "Haven")
-        self.assertEqual(self.app.mail.messages["voyage:trip"]["status"], "aborted")
-        self.app = App(self.path, 42, "AG7SU")
-        self.assertEqual(self.abort(), result)
-
-    def four_frames(self):
-        message = self.app.mail.messages[self.app.game.ship["voyage"]["id"]]
-        # A real manifest, with whitespace padding, still hashes correctly.
-        payload = bytes.fromhex(message["payload_hex"]).ljust(4 * self.app.mail.frame_bytes, b" ")
-        self.assertLessEqual(len(payload), 4 * self.app.mail.frame_bytes)
-        message["payload_hex"] = payload.hex()
-        message["sha256"] = hashlib.sha256(payload).hexdigest()
-        return message
+    def test_waiting_radio_job_with_payload_schedules_bounded_retry(self):
+        job = {"id": "radio-retry", "message_id": "contact-1", "purpose": "contact",
+               "status": "awaiting_ack", "ship_id": self.app.game.ship["id"],
+               "origin": "Haven", "destination": "K7OR", "timeout_at": 100,
+               "payload_hex": "0102", "timeout_seconds": 180, "auto_retry_count": 0}
+        self.app.radio_transmissions[job["id"]] = job
+        initial_condition = self.app.game.ship["condition"]
+        self.app._expire_radio_transmissions(101)
+        self.assertEqual(job["status"], "awaiting_ack")
+        self.assertGreater(job["retry_due_at"], 101)
+        self.assertEqual(self.app.game.ship["condition"], initial_condition)
 
 
 if __name__ == "__main__":

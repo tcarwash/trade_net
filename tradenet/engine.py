@@ -317,6 +317,9 @@ class Game:
     crew_roster: dict = field(default_factory=dict)
     recruited_candidates: list[str] = field(default_factory=list)
     next_crew_number: int = 1
+    warehouse_targets: dict = field(default_factory=dict)
+    fleet_credit_reserve: int = 350
+    next_warehouse_dispatch_tick: int = 0
 
     def __post_init__(self):
         if not self.galaxies:
@@ -341,6 +344,9 @@ class Game:
             ship.setdefault("galaxy", "home")
             ship.setdefault("export_cargo", {})
             ship.setdefault("equipment", [])
+            ship.setdefault("fleet_policy", {"return_to_haven": True, "auto_service": False,
+                          "repair_below": 65, "fuel_below": 35})
+            ship.setdefault("captain_id", None)
         # Crew are recorded once on the roster, not duplicated inside each
         # ship. Recover marooned assignments from older or damaged saves.
         for crew in self.crew_roster.values():
@@ -350,6 +356,10 @@ class Game:
                 crew["ship_id"] = None
                 crew.setdefault("location", "Haven")
                 crew.setdefault("galaxy", "home")
+        for ship in self.fleet.values():
+            if not any(crew.get("ship_id") == ship["id"] for cid, crew in self.crew_roster.items()
+                       if cid == ship.get("captain_id")):
+                ship["captain_id"] = None
         for faction in ("traders", "explorers", "diplomats", "security",
                         "miners", "scientists", "pirates"):
             self.factions.setdefault(faction, 0)
@@ -1239,6 +1249,8 @@ class Game:
             self._bind_ship()
         self.observe_markets()
         self._advance_auto_routes()
+        self._service_idle_fleet()
+        self._advance_warehouse_targets()
         self._gather_idle_ships()
 
     def _select_ship(self, ship_id: str) -> dict:
@@ -1335,6 +1347,8 @@ class Game:
             raise GameError("ship already has that specialist role")
         if sum(c.get("ship_id") == ship_id for c in self.crew_roster.values()) >= self.crew_capacity(destination):
             raise GameError("ship crew berths are full")
+        if source_id and self.fleet[source_id].get("captain_id") == crew_id:
+            self.fleet[source_id]["captain_id"] = None
         crew.update(ship_id=ship_id, location=destination["location"],
                     galaxy=destination.get("galaxy", "home"))
         return {"crew_id": crew_id, "name": crew["name"], "ship_id": ship_id,
@@ -1350,10 +1364,70 @@ class Game:
         if ship["location"] != self.location or ship.get("galaxy", "home") != self.ship.get("galaxy", "home"):
             raise GameError("meet the ship at its starport to disembark crew")
         former_ship = crew["ship_id"]
+        if ship.get("captain_id") == crew_id:
+            ship["captain_id"] = None
         crew.update(ship_id=None, location=ship["location"],
                     galaxy=ship.get("galaxy", "home"))
         return {"crew_id": crew_id, "name": crew["name"],
                 "port": ship["location"], "former_ship_id": former_ship}
+
+    def _designate_captain(self, ship_id: str, crew_id: str = "") -> dict:
+        """Promote one specialist already aboard, keeping their existing role."""
+        ship = self._docked_ship(ship_id)
+        if ship.get("auto_route", {}).get("status") in ("running", "paused"):
+            raise GameError("finish or stop the route before changing its captain")
+        if crew_id:
+            crew = self.crew_roster.get(crew_id)
+            if not crew or crew.get("ship_id") != ship_id:
+                raise GameError("captain must already serve aboard this ship")
+            crew.setdefault("command_xp", 0)
+            crew.setdefault("command_level", 1)
+        ship["captain_id"] = crew_id or None
+        return {"ship_id": ship_id, "crew_id": crew_id,
+                "captain": self.crew_roster[crew_id]["name"] if crew_id else None,
+                "source": "local_simulation"}
+
+    def _set_fleet_policy(self, ship_id: str, return_to_haven: bool,
+                          auto_service: bool, repair_below: int,
+                          fuel_below: int) -> dict:
+        ship = self.fleet.get(ship_id)
+        if ship is None:
+            raise GameError("unknown ship")
+        if (type(return_to_haven) is not bool or type(auto_service) is not bool or
+                type(repair_below) is not int or type(fuel_below) is not int or
+                not 10 <= repair_below <= 90 or not 10 <= fuel_below <= 90):
+            raise GameError("choose valid fleet service settings (10–90% thresholds)")
+        policy = {"return_to_haven": return_to_haven,
+                  "auto_service": auto_service, "repair_below": repair_below,
+                  "fuel_below": fuel_below}
+        ship["fleet_policy"] = policy
+        return {"ship_id": ship_id, "policy": deepcopy(policy), "source": "local_simulation"}
+
+    def _set_fleet_reserve(self, credits: int) -> dict:
+        if type(credits) is not int or not 0 <= credits <= 100000:
+            raise GameError("fleet credit reserve must be 0–100000 credits")
+        self.fleet_credit_reserve = credits
+        return {"credits": credits, "source": "local_simulation"}
+
+    def _set_warehouse_target(self, good: str, target: int, source: str,
+                              quantity: int = 3) -> dict:
+        """Persistent standing order. Target zero removes it entirely."""
+        if good not in GOODS or type(target) is not int or target < 0:
+            raise GameError("choose a valid resource and nonnegative target")
+        if (source not in self.galaxies["home"]["ports"] or source == "Haven" or
+                type(quantity) is not int or not 1 <= quantity <= 100):
+            raise GameError("source must be a non-Haven starport; quantity must be 1–100")
+        other = sum(item["target"] for name, item in self.warehouse_targets.items() if name != good)
+        if target + other > self.haven_warehouse_capacity():
+            raise GameError("warehouse targets exceed available total storage; upgrade Haven first")
+        if target:
+            self.warehouse_targets[good] = {"target": target, "source": source,
+                                           "quantity": quantity}
+        else:
+            self.warehouse_targets.pop(good, None)
+        self._advance_warehouse_targets()
+        return {"good": good, "target": target, "source": source,
+                "quantity": quantity, "source_type": "local_simulation"}
 
     def _rename_ship(self, ship_id: str, name: str) -> dict:
         if ship_id not in self.fleet or not isinstance(name, str):
@@ -1456,6 +1530,10 @@ class Game:
                         self.haven_warehouse_capacity() - sum(self.export_warehouse.values()) < route["quantity"]):
                     self._pause_auto_route(ship, "warehouse", "Haven export warehouse needs more space before the next collection")
                     return
+                if (route.get("standing_target") and self.credits -
+                        self.price(ship["location"], route["good"], "buy") * route["quantity"] < self.fleet_credit_reserve):
+                    self._pause_auto_route(ship, "budget", "Fleet credit reserve protects the next purchase")
+                    return
                 if route["good"] in RARE and not route.get("special_approved"):
                     self._pause_auto_route(ship, "special_cargo", f"Rare {route['good']} requires captain approval before purchasing")
                     return
@@ -1498,6 +1576,14 @@ class Game:
                                       quantity=route["quantity"], profit=profit,
                                       completed_runs=route["completed_runs"] + 1)
                 route["completed_runs"] += 1
+                captain = self.crew_roster.get(ship.get("captain_id"))
+                if captain and captain.get("ship_id") == ship_id:
+                    captain["command_xp"] = captain.get("command_xp", 0) + 1
+                    previous = captain.get("command_level", 1)
+                    captain["command_level"] = min(3, 1 + (captain["command_xp"] >= 3) + (captain["command_xp"] >= 9))
+                    if captain["command_level"] > previous:
+                        self._route_event(ship, "captain_promoted", captain=captain["name"],
+                                          command_level=captain["command_level"])
                 if route["completed_runs"] >= route["max_runs"]:
                     route["status"] = "completed"
                     self._route_event(ship, "auto_route_completed", runs=route["completed_runs"],
@@ -1513,6 +1599,71 @@ class Game:
             if ship_id in self.fleet:
                 self._advance_auto_ship(ship_id)
 
+    def _service_idle_fleet(self) -> None:
+        """Optional base maintenance using actual stocks, prices and a cash floor."""
+        for ship_id, ship in self.fleet.items():
+            policy = ship.get("fleet_policy", {})
+            if (not policy.get("auto_service") or ship.get("galaxy", "home") != "home"
+                    or ship.get("location") != "Haven" or ship.get("destination")
+                    or ship.get("radio_mission") or ship.get("vip_job")
+                    or ship.get("auto_route", {}).get("status") in ("running", "paused")):
+                continue
+            if ship["condition"] <= policy.get("repair_below", 65):
+                cost = self._repair_cost(ship_id)
+                if cost > 0 and self.credits - cost >= self.fleet_credit_reserve:
+                    result = self._with_auto_ship(ship_id, self._repair)
+                    self.journal.append({"id": f"service-repair-{ship_id}-{self.tick}-{len(self.journal)}",
+                                         "tick": self.tick, "action": "fleet_auto_repair",
+                                         "result": {"ship_id": ship_id, "cost": result["cost"]}})
+            if ship["fuel"] * 100 <= ship["max_fuel"] * policy.get("fuel_below", 35):
+                unit_price = self.price("Haven", "fuel", "buy")
+                affordable = max(0, (self.credits - self.fleet_credit_reserve) // max(1, unit_price))
+                quantity = min(ship["max_fuel"] - ship["fuel"],
+                               self.galaxies["home"]["ports"]["Haven"]["stock"]["fuel"], affordable)
+                if quantity > 0:
+                    result = self._with_auto_ship(ship_id, lambda: self._refuel(quantity))
+                    self.journal.append({"id": f"service-fuel-{ship_id}-{self.tick}-{len(self.journal)}",
+                                         "tick": self.tick, "action": "fleet_auto_refuel",
+                                         "result": {"ship_id": ship_id, "amount": result["amount"],
+                                                    "cost": result["cost"]}})
+
+    def _advance_warehouse_targets(self) -> None:
+        """Issue at most one new bounded supply order per economy tick."""
+        if self.tick < self.next_warehouse_dispatch_tick:
+            return
+        for good, policy in sorted(self.warehouse_targets.items()):
+            source, target = policy["source"], policy["target"]
+            pending = sum(route["quantity"] for ship in self.fleet.values()
+                          if (route := ship.get("auto_route", {})).get("standing_target") == good
+                          and route.get("status") in ("running", "paused"))
+            needed = target - self.export_warehouse.get(good, 0) - pending
+            if needed <= 0 or self.credits <= self.fleet_credit_reserve:
+                continue
+            quote = self.price_memory.get(good, {}).get("by_port", {}).get(source, {}).get("buy")
+            if type(quote) is not int or quote < 1:
+                continue  # Standing orders require a known market, not omniscience.
+            idle = [ship for ship in self.fleet.values()
+                    if (ship["id"] != self.active_ship_id and ship.get("galaxy", "home") == "home"
+                        and not ship.get("destination") and not ship.get("radio_mission")
+                        and not ship.get("vip_job") and not ship.get("voyage")
+                        and not any(ship["cargo"].values())
+                        and ship.get("auto_route", {}).get("status") not in ("running", "paused")
+                        and ship.get("condition", 0) >= 10)]
+            idle.sort(key=lambda ship: (not bool(ship.get("captain_id")),
+                                         ship["location"] != source, -ship["condition"], ship["id"]))
+            for ship in idle:
+                quantity = min(needed, policy["quantity"], ship["capacity"],
+                               self.haven_warehouse_capacity() - sum(self.export_warehouse.values()) - pending)
+                if quantity < 1 or quote * quantity > self.credits - self.fleet_credit_reserve:
+                    continue
+                try:
+                    self._start_auto_route(ship["id"], source, "Haven", good, quantity,
+                                           max_runs=1, kind="supply", standing_target=good)
+                except GameError:
+                    continue
+                self.next_warehouse_dispatch_tick = self.tick + 1
+                return
+
     def _gather_idle_ships(self) -> None:
         """Park unused, unselected home-galaxy vessels at Haven when safe.
 
@@ -1520,7 +1671,8 @@ class Game:
         interrupt an assignment, or commit to a hazardous approach unaided.
         """
         for ship_id, ship in self.fleet.items():
-            if (ship_id == self.active_ship_id or ship.get("galaxy", "home") != "home"
+            if (ship_id == self.active_ship_id or not ship.get("fleet_policy", {}).get("return_to_haven", True)
+                    or ship.get("galaxy", "home") != "home"
                     or ship.get("location") == "Haven" or ship.get("destination")
                     or ship.get("radio_mission") or ship.get("vip_job")
                     or ship.get("voyage") or any(ship["cargo"].values())
@@ -1540,7 +1692,7 @@ class Game:
 
     def _start_auto_route(self, ship_id: str, origin: str, destination: str,
                           good: str, quantity: int, max_runs: int = 3,
-                          kind: str = "trade") -> dict:
+                          kind: str = "trade", standing_target: str = "") -> dict:
         ship = self._docked_ship(ship_id)
         if (origin not in self.galaxies["home"]["ports"] or
                 destination not in self.galaxies["home"]["ports"] or origin == destination or
@@ -1557,7 +1709,7 @@ class Game:
             raise GameError("stop the current route before planning another")
         ship["auto_route_serial"] = ship.get("auto_route_serial", 0) + 1
         ship["auto_route"] = {"origin": origin, "destination": destination, "good": good,
-            "kind": kind, "delivered": 0,
+            "kind": kind, "delivered": 0, "standing_target": standing_target,
             "quantity": quantity, "max_runs": max_runs, "completed_runs": 0,
             "spent": 0, "earned": 0, "profit": 0, "purchase_cost": 0,
             "status": "running", "stage": "to_origin", "created_tick": self.tick,
@@ -1664,6 +1816,12 @@ class Game:
                                "arrival_tick": None, "modem_tier": tier,
                                "speed": tier + 1, "location": self.location,
                                "galaxy": self.ship.get("galaxy", "home"),
+                               "export_cargo": {}, "equipment": [],
+                               "captain_id": None,
+                               "fleet_policy": {"return_to_haven": True,
+                                                "auto_service": False,
+                                                "repair_below": 65,
+                                                "fuel_below": 35},
                                "cargo": {g: 0 for g in GOODS}}
         if hull:
             self.fleet[ship_id].update({key: hull[key] for key in
@@ -1792,7 +1950,12 @@ class Game:
 
     def command(self, command_id: str, action: str, **kwargs) -> dict:
         """Execute once. Repeated IDs return their original result without side effects."""
-        self._all_arrivals()
+        # Doctrine changes must take effect before the next unattended action.
+        # In particular, an opt-out must not dispatch an idle ship home while
+        # the player is in the act of disabling that behavior.
+        if action not in ("set_fleet_policy", "set_fleet_reserve",
+                          "set_warehouse_target", "designate_captain"):
+            self._all_arrivals()
         if not command_id or len(command_id) > 128:
             raise GameError("command_id must contain 1-128 characters")
         if command_id in self.completed_commands:
@@ -1836,6 +1999,14 @@ class Game:
                 result = self._start_auto_route(**kwargs)
             elif action == "dispatch_haven_supply":
                 result = self._dispatch_haven_supply(**kwargs)
+            elif action == "set_warehouse_target":
+                result = self._set_warehouse_target(**kwargs)
+            elif action == "set_fleet_reserve":
+                result = self._set_fleet_reserve(**kwargs)
+            elif action == "set_fleet_policy":
+                result = self._set_fleet_policy(**kwargs)
+            elif action == "designate_captain":
+                result = self._designate_captain(**kwargs)
             elif action == "pause_auto_route":
                 result = self._pause_auto_route_command(**kwargs)
             elif action == "resume_auto_route":
@@ -2155,12 +2326,18 @@ class Game:
             self.observe_markets()
         return {"epoch": self.clock_epoch, "advanced": elapsed, "tick": self.tick}
 
+    def _repair_cost(self, ship_id: str) -> int:
+        ship = self.fleet[ship_id]
+        engineer = self.crew_member(ship_id, "engineer")
+        captain = self.crew_roster.get(ship.get("captain_id"))
+        discount_percent = min(90, 15 * self.haven_facilities.get("repair_bay", 0) +
+                               (5 * engineer["level"] if engineer else 0) +
+                               (5 * max(0, captain.get("command_level", 1) - 1) if captain else 0))
+        return math.ceil((100 - ship["condition"]) * 2 * (100 - discount_percent) / 100)
+
     def _repair(self) -> dict:
         self._available(maintenance=True)
-        engineer = self.crew_member(self.active_ship_id, "engineer")
-        discount_percent = min(90, 15 * self.haven_facilities.get("repair_bay", 0) +
-                               (5 * engineer["level"] if engineer else 0))
-        cost = math.ceil((100 - self.ship["condition"]) * 2 * (100 - discount_percent) / 100)
+        cost = self._repair_cost(self.active_ship_id)
         if self.credits < cost:
             raise GameError("insufficient credits")
         self.credits -= cost

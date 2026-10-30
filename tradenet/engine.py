@@ -24,6 +24,7 @@ PORT_ROLES = ("Home hub", "Refinery", "Research enclave", "Mining colony",
 EQUIPMENT = {"scanner": 220, "shield": 350, "navigator": 420, "defense": 380}
 INCIDENT_INTERVAL = 8  # Shared economy ticks; no wall-clock-only randomness.
 NPC_INTERVAL = 6  # A captain's route advances every 30 in-game minutes.
+ENCOUNTER_INTERVAL = 12  # A new local opportunity every in-game hour.
 SECTOR_INCIDENTS = (
     ("Medical emergency", "Aurora", "Vesper", "medicine",
      "A clinic supply convoy is overdue. Medical shipments are urgently needed."),
@@ -199,6 +200,32 @@ ENCOUNTER_SITES = {
             {"id": "catalog", "label": "Document the markings", "description": "No cost → +80 cr, +1 explorers",
              "credits": 80, "faction": "explorers", "standing": 1}]},
 }
+LOCAL_ENCOUNTER_TEMPLATES = (
+    {"title": "Emergency Shelter", "description": "A passing family ship needs food and a safe berth.",
+     "choices": [
+         {"id": "feed", "label": "Share 2 food", "description": "2 food → +130 cr, +2 diplomats",
+          "cargo": {"food": 2}, "credits": 130, "faction": "diplomats", "standing": 2},
+         {"id": "relay", "label": "Forward their distress report", "description": "No cost → +30 cr, +1 explorers",
+          "credits": 30, "faction": "explorers", "standing": 1}]},
+    {"title": "Survey Drone Adrift", "description": "A mapping drone is tumbling toward the navigation lane.",
+     "choices": [
+         {"id": "recover", "label": "Recover the drone", "description": "2 ship fuel → +115 cr, +2 scientists",
+          "fuel": 2, "credits": 115, "faction": "scientists", "standing": 2},
+         {"id": "record", "label": "Record its position", "description": "No cost → +25 cr, +1 explorers",
+          "credits": 25, "faction": "explorers", "standing": 1}]},
+    {"title": "Scattered Salvage", "description": "An asteroid has shattered a cargo container in the approach corridor.",
+     "choices": [
+         {"id": "salvage", "label": "Risk a salvage sortie", "description": "4 hull → +70 cr, 1 ore, +2 miners",
+          "hull": 4, "loot": {"ore": 1}, "credits": 70, "faction": "miners", "standing": 2},
+         {"id": "report", "label": "Report the debris", "description": "No cost → +25 cr, +1 security",
+          "credits": 25, "faction": "security", "standing": 1}]},
+    {"title": "Unscheduled Patrol", "description": "Port controllers request help tracing a suspicious freighter.",
+     "choices": [
+         {"id": "escort", "label": "Burn fuel for a patrol", "description": "2 ship fuel → +120 cr, +2 security",
+          "fuel": 2, "credits": 120, "faction": "security", "standing": 2},
+         {"id": "log", "label": "File an observation", "description": "No cost → +30 cr, +1 traders",
+          "credits": 30, "faction": "traders", "standing": 1}]},
+)
 
 
 class GameError(ValueError):
@@ -246,6 +273,8 @@ class Game:
     encounters: dict = field(default_factory=dict)
     npc_captains: dict = field(default_factory=dict)
     npc_shipments: list[dict] = field(default_factory=list)
+    local_encounters: dict = field(default_factory=dict)
+    faction_followups: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if not self.galaxies:
@@ -289,6 +318,7 @@ class Game:
             self._replenish_local_jobs()
         self._replenish_vip_jobs()
         self._refresh_sector_events()
+        self._refresh_local_encounters()
         # New authored expeditions appear in existing saves without resetting
         # completed or in-progress missions from earlier releases.
         for template in EXPEDITION_TEMPLATES:
@@ -330,7 +360,8 @@ class Game:
                 "kind": "dispatch", "event_id": event_id}
         # Dispatch displaces a routine posting rather than expanding the
         # board indefinitely. Keep the normal three-job choice budget.
-        open_jobs = [job for job in self.local_jobs.values() if job["status"] == "open"]
+        open_jobs = [job for job in self.local_jobs.values()
+                     if job["status"] == "open" and job.get("kind") not in ("rival", "followup")]
         for job in reversed(open_jobs):
             if len(open_jobs) <= 3:
                 break
@@ -341,6 +372,47 @@ class Game:
     def active_sector_events(self) -> list[dict]:
         return [event for event in self.sector_events
                 if event["start_tick"] <= self.tick < event["end_tick"]]
+
+    def _refresh_local_encounters(self):
+        """One repeatable local decision per cycle, without radio traffic."""
+        for event in self.local_encounters.values():
+            if event["status"] == "open" and self.tick > event["deadline"]:
+                event["status"] = "expired"
+        cycle = self.tick // ENCOUNTER_INTERVAL
+        event_id = f"local-encounter-{cycle:06d}"
+        if event_id not in self.local_encounters:
+            template = deepcopy(LOCAL_ENCOUNTER_TEMPLATES[(self.seed + cycle) % len(LOCAL_ENCOUNTER_TEMPLATES)])
+            port = PORT_NAMES[1 + ((self.seed * 3 + cycle * 5) % (len(PORT_NAMES) - 1))]
+            self.local_encounters[event_id] = {
+                **template, "id": event_id, "port": port, "status": "open",
+                "start_tick": cycle * ENCOUNTER_INTERVAL,
+                "deadline": (cycle + 1) * ENCOUNTER_INTERVAL + 6,
+                "source": "local_simulation"}
+        if len(self.local_encounters) > 16:
+            for key in list(self.local_encounters)[:-16]:
+                del self.local_encounters[key]
+
+    def _advance_faction_followups(self):
+        """A completed relationship arc offers one later, playable consequence."""
+        for followup in self.faction_followups.values():
+            if followup["status"] != "pending" or self.tick < followup["due_tick"]:
+                continue
+            captain = self.npc_captains[followup["npc_id"]]
+            good = captain["good"]
+            job_id = "followup-" + followup["expedition_id"]
+            friendly = followup.get("friendly", True)
+            quantity = 2 if friendly else 3
+            self.local_jobs[job_id] = {
+                "id": job_id, "kind": "followup", "npc_id": captain["id"],
+                "title": followup["title"], "description": followup["description"],
+                "origin": captain["location"], "destination": "Haven", "good": good,
+                "quantity": quantity, "reward": (210 if friendly else 340) + BASE_PRICE[good] * quantity,
+                "deadline": self.tick + (48 if friendly else 30), "status": "open"}
+            followup.update(status="available", job_id=job_id, activated_tick=self.tick)
+            self.journal.append({"id": "followup-ready-" + followup["expedition_id"],
+                "tick": self.tick, "action": "followup_available",
+                "result": {"title": followup["title"], "captain": captain["name"],
+                           "origin": captain["location"], "good": good}})
 
     def _advance_npc_captains(self):
         """Advance named local haulers; stock is transferred, never generated.
@@ -375,6 +447,25 @@ class Game:
                     "tick": cycle * NPC_INTERVAL - captain["phase"],
                     "origin": origin, "destination": destination,
                     "good": good, "quantity": quantity})
+                # A nearby operator can beat a captain to the delivery, but
+                # has two full movement cycles to assemble the same cargo.
+                departure_tick = cycle * NPC_INTERVAL - captain["phase"]
+                open_rivals = sum(j["status"] == "open" and j.get("kind") == "rival"
+                                  for j in self.local_jobs.values())
+                if (quantity >= 2 and cycle % 4 == captain["phase"] % 4
+                        and departure_tick >= self.tick - NPC_INTERVAL
+                        and open_rivals < 2 and origin_stock[good] >= 2):
+                    count = min(3, origin_stock[good])
+                    job_id = f"rival-{captain['id']}-{cycle}"
+                    self.local_jobs.setdefault(job_id, {
+                        "id": job_id, "kind": "rival", "npc_id": captain["id"],
+                        "title": f"Race {captain['name']} to {destination}",
+                        "description": f"Move {good} before {captain['vessel']} claims the contract.",
+                        "origin": origin, "destination": destination,
+                        "good": good, "quantity": count,
+                        "reward": BASE_PRICE[good] * count * 3 + 80,
+                        "deadline": departure_tick + NPC_INTERVAL * 2,
+                        "status": "open"})
             captain["last_cycle"] = target_cycle
         self.npc_shipments = self.npc_shipments[-24:]
 
@@ -397,6 +488,25 @@ class Game:
         option = next((c for c in encounter["choices"] if c["id"] == choice), None)
         if option is None:
             raise GameError("choose a valid encounter outcome")
+        outcome = self._apply_encounter_option(encounter, option)
+        encounter.update(status="resolved", choice=choice, resolved_tick=self.tick)
+        return outcome
+
+    def _resolve_local_encounter(self, incident_id: str, choice: str) -> dict:
+        self._available()
+        event = self.local_encounters.get(incident_id)
+        if not event or event["status"] != "open" or self.tick > event["deadline"]:
+            raise GameError("this local encounter is no longer available")
+        if self.ship.get("galaxy", "home") != "home" or self.location != event["port"]:
+            raise GameError("dock at the encounter's starport")
+        option = next((c for c in event["choices"] if c["id"] == choice), None)
+        if option is None:
+            raise GameError("choose a valid encounter outcome")
+        outcome = self._apply_encounter_option(event, option)
+        event.update(status="resolved", choice=choice, resolved_tick=self.tick)
+        return {**outcome, "incident_id": incident_id, "recurring": True}
+
+    def _apply_encounter_option(self, encounter: dict, option: dict) -> dict:
         fuel_cost, hull_cost = option.get("fuel", 0), option.get("hull", 0)
         spent = option.get("cargo", {})
         loot = option.get("loot", {})
@@ -414,7 +524,7 @@ class Game:
             self.cargo[good] -= count
             self.ship.setdefault("export_cargo", {})[good] = max(
                 0, self.ship["export_cargo"].get(good, 0) - count)
-            self.ports[port]["stock"][good] += count
+            self.ports[encounter["port"]]["stock"][good] += count
         for good, count in loot.items():
             self.cargo[good] += count
         payout = option["credits"]
@@ -422,8 +532,7 @@ class Game:
             payout = payout * 125 // 100
         self.credits += payout
         self.factions[option["faction"]] += option["standing"]
-        encounter.update(status="resolved", choice=choice, resolved_tick=self.tick)
-        return {"port": port, "title": encounter["title"],
+        return {"port": encounter["port"], "title": encounter["title"],
                 "outcome": option["label"], "reward": payout,
                 "fuel_spent": fuel_cost, "hull_spent": hull_cost,
                 "cargo_spent": deepcopy(spent), "salvage": deepcopy(loot),
@@ -532,6 +641,14 @@ class Game:
             mission["status"] = "completed"
             mission["completed_tick"] = self.tick
             mission["payout"] = reward
+            if captain and mission["id"] not in self.faction_followups:
+                aligned = relationship_delta > 0
+                self.faction_followups[mission["id"]] = {
+                    "expedition_id": mission["id"], "npc_id": captain["id"],
+                    "status": "pending", "due_tick": self.tick + 12, "friendly": aligned,
+                    "title": ("A Favor from " if aligned else "A Challenge from ") + captain["name"],
+                    "description": ("Your help earned a priority freight offer." if aligned else
+                                    "Your rival demands that you prove yourself on a difficult delivery.")}
             return {"expedition_id": expedition_id, "title": mission["title"],
                     "stage_title": stage["title"], "completed": True,
                     "reward": reward, "choice": mission["choice"],
@@ -702,12 +819,23 @@ class Game:
         """Keep a small deterministic board of real, one-time freight demand."""
         for job in self.local_jobs.values():
             if job["status"] == "open" and self.tick > job["deadline"]:
-                job["status"] = "expired"
+                job["status"] = "claimed" if job.get("kind") == "rival" else "expired"
+                if job.get("kind") == "rival":
+                    captain = self.npc_captains.get(job["npc_id"])
+                    self.journal.append({"id": "npc-claim-" + job["id"],
+                        "tick": self.tick, "action": "npc_claim",
+                        "result": {"job_id": job["id"], "captain": captain["name"] if captain else "A rival",
+                                   "good": job["good"], "destination": job["destination"]}})
+                elif job.get("kind") == "followup":
+                    for followup in self.faction_followups.values():
+                        if followup.get("job_id") == job["id"]:
+                            followup["status"] = "expired"
         if len(self.local_jobs) > 100:
             history = [key for key, job in self.local_jobs.items() if job["status"] != "open"]
             for key in history[:len(self.local_jobs) - 100]:
                 del self.local_jobs[key]
-        open_jobs = sum(job["status"] == "open" for job in self.local_jobs.values())
+        open_jobs = sum(job["status"] == "open" and job.get("kind") not in ("rival", "followup")
+                        for job in self.local_jobs.values())
         ports = list(self.ports)
         while open_jobs < 3 and ports:
             number = self.next_job_number
@@ -743,8 +871,17 @@ class Game:
         self.factions["traders"] += 1
         job["status"] = "delivered"
         job["completed_tick"] = self.tick
+        captain = self.npc_captains.get(job.get("npc_id"))
+        if captain and job.get("kind") in ("rival", "followup"):
+            captain["relationship"] = max(-5, min(5, captain["relationship"] + 1))
+        if job.get("kind") == "followup":
+            for followup in self.faction_followups.values():
+                if followup.get("job_id") == job_id:
+                    followup["status"] = "completed"
         self._replenish_local_jobs()
-        return {"job_id": job_id, "reward": job["reward"], "credits": self.credits}
+        return {"job_id": job_id, "reward": job["reward"], "credits": self.credits,
+                "captain": captain["name"] if captain else None,
+                "kind": job.get("kind")}
 
     def _bind_ship(self):
         self.ship = self.fleet[self.active_ship_id]
@@ -1004,6 +1141,8 @@ class Game:
                 result = self._abandon_expedition(**kwargs)
             elif action == "resolve_encounter":
                 result = self._resolve_encounter(**kwargs)
+            elif action == "resolve_local_encounter":
+                result = self._resolve_local_encounter(**kwargs)
             elif action == "upgrade_haven":
                 result = self._upgrade_haven(**kwargs)
             else:
@@ -1215,7 +1354,9 @@ class Game:
             self._all_arrivals()
             self._advance_npc_captains()
             self._refresh_sector_events()
+            self._refresh_local_encounters()
         self._replenish_local_jobs()
+        self._advance_faction_followups()
         self.observe_markets()
         return {"tick": self.tick, "location": self.location,
                 "in_transit": self.ship["destination"] is not None}
@@ -1246,7 +1387,9 @@ class Game:
             self._advance_npc_captains()
             self.clock_epoch = epoch
             self._refresh_sector_events()
+            self._refresh_local_encounters()
             self._replenish_local_jobs()
+            self._advance_faction_followups()
             self.observe_markets()
         return {"epoch": self.clock_epoch, "advanced": elapsed, "tick": self.tick}
 

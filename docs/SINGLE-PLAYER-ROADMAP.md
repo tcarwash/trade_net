@@ -79,6 +79,9 @@ dispatch contract without Data2G, and expired effects are removed.
       actual fuel/hull/cargo costs, credit and faction rewards, and salvage.
 - [x] Discovery journal, dockside choice cards, and milestone dialogs with
       persistent outcomes and replay-safe commands.
+- [x] Four recurring local encounter templates rotate among starports, with
+      safe and riskier choices, real costs/rewards and expiry. Only the current
+      incident is materialized on a long offline return.
 - [ ] Add a typed mission state machine: offered → accepted → steps →
       completed/failed/abandoned, with reward escrow and idempotent steps.
       (The first expedition state machine is implemented; richer failure and
@@ -142,9 +145,16 @@ not just a discovery payout.
       commodity; hostile captains charge a surcharge at their current port.
 - [x] Local map diamonds, traffic ticker, captain cards and contract-giver
       attribution help players plan around these moving opportunities.
-- [ ] NPCs compete for specific contracts and can change incident outcomes.
-- [ ] Persistent dialogue, encounter callbacks, more rescuees and faction
-      quest chains with access to special markets/equipment.
+- [x] Rival freight postings permit the player to beat an NPC captain to a
+      delivery; unfulfilled postings are claimed by the rival after a deadline.
+      Winning improves the named relationship and pays a real local contract.
+- [x] Relationship expedition outcomes schedule a one-time follow-up freight
+      opportunity after 12 economy ticks. Returning from a long absence
+      activates it with a fresh deadline instead of silently losing it.
+- [ ] NPCs can change the outcome of sector incidents and react through
+      dialogue, later encounters or faction-controlled market access.
+- [ ] More rescuees and branching quest chains with special equipment and
+      authored endings.
 
 **Done when:** players recognize NPCs and see consequences of helping or
 antagonizing them in subsequent encounters.
@@ -225,8 +235,8 @@ intentional, legible operator action.
   offline return with no dead ends.
 
 The current solo vertical slice includes incidents, multi-stage expeditions,
-one-time dockside encounters, three upgradable Haven facilities and recurring
-local NPC haulers. Their shipments and relationship-dependent market offers
-remain entirely inside the saved game. Broader faction dialogue, multi-hop
-freight custody and simulator radio contacts remain future milestones, not
-implied by the presence of a reported link.
+one-time and repeating dockside encounters, three upgradable Haven facilities,
+recurring local NPC haulers, rival contracts and delayed faction follow-ups.
+Their shipments and relationship-dependent market offers remain entirely inside
+the saved game. Broader faction dialogue, multi-hop freight custody and
+simulator radio contacts remain future milestones, not implied by a reported link.

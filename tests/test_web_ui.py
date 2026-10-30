@@ -81,7 +81,7 @@ class BrowserUIContractTests(unittest.TestCase):
         self.assertTrue({"sectorNews", "newsAction", "newsTitle"}.issubset(parser.ids))
         for marker in ("◇ Local dispatch", "○ Unverified RF", "◉ Verified RF", "renderDispatchSignals()",
                        "renderSectorNews()", "showDispatchJob(", "dispatch_signals",
-                       "job.kind==='dispatch'", "state.radio_contacts?.[id]?'◉ ':'○ '"):
+                       "dispatch:'◇ SECTOR DISPATCH'", "state.radio_contacts?.[id]?'◉ ':'○ '"):
             with self.subTest(marker=marker):
                 self.assertIn(marker, html)
         # Fictional contacts navigate only to local contracts. The single live
@@ -118,7 +118,7 @@ class BrowserUIContractTests(unittest.TestCase):
                        "command('resolve_encounter'", "command('upgrade_haven'",
                        "state.haven_upgrades", "state.haven_warehouse_capacity",
                        "entry.action==='discover_site'", "entry.action==='resolve_encounter'",
-                       "entry.action==='upgrade_haven'", "renderEncounter();renderDiscoveryJournal();renderHaven()"):
+                       "entry.action==='upgrade_haven'", "renderEncounter();renderDiscoveryJournal();renderLocalEncounters();renderHaven()"):
             with self.subTest(marker=marker):
                 self.assertIn(marker, html)
 
@@ -127,8 +127,19 @@ class BrowserUIContractTests(unittest.TestCase):
         for marker in ("function renderNpcTraffic(){", "npcTraffic", "npc-board",
                        "npc-diamond", "npc-target", "state.game.npc_captains",
                        "g.npc_shipments", "mission.issuer_npc", "◇ LOCAL ACTIVITY",
-                       "renderHaven();renderNpcTraffic();renderExchange()",
+                       "renderLocalEncounters();renderHaven();renderNpcTraffic();renderExchange()",
                        "captain.relationship>0?'FRIENDLY PRICE'"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, html)
+
+    def test_living_galaxy_rivals_followups_and_local_encounter_choices(self):
+        html = self.browser_html()
+        for marker in ("renderLocalEncounters()", "function renderLocalEncounters(){",
+                       "localEncountersPanel", "g.local_encounters", "◇ Passing opportunities",
+                       "command('resolve_local_encounter'", "◇ RIVAL FREIGHT",
+                       "◇ FACTION FOLLOW-UP", "entry.action==='followup_available'",
+                       "entry.action==='npc_claim'", "entry.action==='resolve_local_encounter'",
+                       "Math.max(0,job.deadline-g.tick)"):
             with self.subTest(marker=marker):
                 self.assertIn(marker, html)
 

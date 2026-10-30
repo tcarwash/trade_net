@@ -17,7 +17,7 @@ from copy import deepcopy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .engine import Game, GameError, GOODS, BASE_PRICE, HAVEN_FACILITIES, CREW_ROLES
+from .engine import Game, GameError, GOODS, RARE, BASE_PRICE, HAVEN_FACILITIES, CREW_ROLES
 from .network import Network
 from . import modems
 from .data2g import Data2GClient, Data2GError
@@ -906,6 +906,7 @@ class App:
                 "route_hazards": {port: self.game.route_risk(self.game.location, port)
                                   for port in self.game.ports if port != self.game.location},
                 "goods": GOODS,
+                "rare_goods": sorted(RARE),
                 "prices": {port: {good: {"buy": self.game.price(port, good, "buy"),
                                             "sell": self.game.price(port, good, "sell")}
                                   for good in GOODS} for port in self.game.ports}}

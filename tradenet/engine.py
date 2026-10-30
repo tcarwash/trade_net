@@ -1089,6 +1089,9 @@ class Game:
                 continue
             for good in GOODS:
                 memory = self.price_memory.setdefault(good, {})
+                memory.setdefault("by_port", {})[port] = {
+                    "buy": self.price(port, good, "buy"),
+                    "sell": self.price(port, good, "sell"), "tick": self.tick}
                 for action, key, better in (("buy", "lowest_buy", min),
                                             ("sell", "highest_sell", max)):
                     quote = self.price(port, good, action)
@@ -1196,6 +1199,7 @@ class Game:
                 arrived = (time.time() >= arrival_at if arrival_at is not None else
                            self.tick >= (ship.get("arrival_tick") or self.tick + 1))
                 if arrived:
+                    first_visit = ship.get("galaxy", "home") == "home" and ship["destination"] not in self.visited_ports
                     ship["location"] = ship.pop("destination")
                     ship["destination"] = None
                     ship["arrival_tick"] = None
@@ -1228,9 +1232,13 @@ class Game:
                             "tick": self.tick, "action": "explore",
                             "result": {"port": ship["location"], "reward": explore_bonus + find["reward"],
                                        "discovery": find["title"]}})
+                    route = ship.get("auto_route")
+                    if route and route.get("status") == "running" and first_visit:
+                        self._pause_auto_route(ship, "discovery", "New starport discovered: inspect the site before continuing")
         if self.active_ship_id:
             self._bind_ship()
         self.observe_markets()
+        self._advance_auto_routes()
 
     def _select_ship(self, ship_id: str) -> dict:
         if ship_id not in self.fleet:
@@ -1306,6 +1314,8 @@ class Game:
         if not crew:
             raise GameError("unknown crew member")
         destination = self._docked_ship(ship_id)
+        if destination.get("auto_route", {}).get("status") in ("running", "paused"):
+            raise GameError("stop the trade autopilot before changing its crew")
         if destination["location"] != self.location or destination.get("galaxy", "home") != self.ship.get("galaxy", "home"):
             raise GameError("meet the target ship at the current starport")
         source_id = crew.get("ship_id")
@@ -1313,6 +1323,8 @@ class Game:
             raise GameError("crew member already assigned to this ship")
         if source_id:
             source = self._docked_ship(source_id)
+            if source.get("auto_route", {}).get("status") in ("running", "paused"):
+                raise GameError("stop the trade autopilot before transferring its crew")
             if source["location"] != destination["location"] or source.get("galaxy", "home") != destination.get("galaxy", "home"):
                 raise GameError("both ships must be docked together to transfer crew")
         elif (crew.get("location") != destination["location"] or
@@ -1332,6 +1344,8 @@ class Game:
         if not crew or not crew.get("ship_id"):
             raise GameError("crew member is not assigned")
         ship = self._docked_ship(crew["ship_id"])
+        if ship.get("auto_route", {}).get("status") in ("running", "paused"):
+            raise GameError("stop the trade autopilot before disembarking its crew")
         if ship["location"] != self.location or ship.get("galaxy", "home") != self.ship.get("galaxy", "home"):
             raise GameError("meet the ship at its starport to disembark crew")
         former_ship = crew["ship_id"]
@@ -1353,6 +1367,8 @@ class Game:
         if source_id == destination_id or good not in GOODS or type(amount) is not int or amount <= 0:
             raise GameError("choose two ships and a positive cargo amount")
         source, target = self._docked_ship(source_id), self._docked_ship(destination_id)
+        if any(ship.get("auto_route", {}).get("status") in ("running", "paused") for ship in (source, target)):
+            raise GameError("stop trade autopilot before transferring its cargo")
         if (source["location"] != target["location"] or source.get("galaxy", "home") != target.get("galaxy", "home")
                 or source["location"] != self.location or source.get("galaxy", "home") != self.ship.get("galaxy", "home")):
             raise GameError("both ships must be docked together at the current port")
@@ -1367,6 +1383,184 @@ class Game:
         target.setdefault("export_cargo", {})[good] = target.get("export_cargo", {}).get(good, 0) + eligible
         return {"source_id": source_id, "destination_id": destination_id,
                 "good": good, "amount": amount, "imported": eligible}
+
+    def _route_event(self, ship: dict, action: str, **details) -> None:
+        route = ship["auto_route"]
+        route["event_number"] = route.get("event_number", 0) + 1
+        self.journal.append({"id": f"auto-{ship['id']}-{route['serial']}-{route['event_number']}",
+                             "tick": self.tick, "action": action,
+                             "result": {"ship_id": ship["id"], "ship": ship["name"], **details}})
+
+    def _pause_auto_route(self, ship: dict, code: str, reason: str) -> None:
+        route = ship["auto_route"]
+        if route["status"] != "paused" or route.get("pause_code") != code:
+            route.update(status="paused", pause_code=code, pause_reason=reason)
+            self._route_event(ship, "auto_route_paused", code=code, reason=reason)
+
+    def _with_auto_ship(self, ship_id: str, operation):
+        """Temporarily bind a non-active ship without changing the player's selection."""
+        previous_id = self.active_ship_id
+        had_auto = "_auto_working" in self.__dict__
+        previous_auto = getattr(self, "_auto_working", False)
+        try:
+            self.active_ship_id = ship_id
+            self._bind_ship()
+            self._auto_working = True
+            return operation()
+        finally:
+            if had_auto:
+                self._auto_working = previous_auto
+            else:
+                self.__dict__.pop("_auto_working", None)
+            self.active_ship_id = previous_id
+            if previous_id in self.fleet:
+                self._bind_ship()
+
+    def _advance_auto_ship(self, ship_id: str) -> None:
+        ship = self.fleet[ship_id]
+        route = ship.get("auto_route")
+        if not route or route["status"] != "running" or ship.get("destination") or ship.get("radio_mission"):
+            return
+        if ship.get("galaxy", "home") != "home":
+            self._pause_auto_route(ship, "mission", "Only the home galaxy supports local trade autopilot")
+            return
+        if self.tick < route.get("next_tick", 0):
+            return
+        # Each wake can complete an arrival, buy or sell, and launch one leg.
+        # It cannot silently perform many profitable runs during offline catch-up.
+        for _ in range(3):
+            stage = route["stage"]
+            if stage in ("to_origin", "to_destination"):
+                port = route["origin"] if stage == "to_origin" else route["destination"]
+                if ship["location"] == port:
+                    route["stage"] = "buy" if stage == "to_origin" else "sell"
+                    continue
+                def depart():
+                    risk = self.route_risk(self.location, port)
+                    if self.blocked_port() == port:
+                        self._pause_auto_route(ship, "blocked", f"Asteroid field obstructs {port}; try again when it moves")
+                        return
+                    if risk["kind"] != "clear":
+                        self._pause_auto_route(ship, "hazard", f"{risk['label']} ahead on the approach to {port}")
+                        return
+                    try:
+                        receipt = self._travel(port)
+                        route["last_event"] = f"Departed for {port} · {receipt['fuel_cost']} fuel"
+                    except GameError as exc:
+                        self._pause_auto_route(ship, "service", str(exc))
+                self._with_auto_ship(ship_id, depart)
+                return
+            if stage == "buy":
+                if route["good"] in RARE and not route.get("special_approved"):
+                    self._pause_auto_route(ship, "special_cargo", f"Rare {route['good']} requires captain approval before purchasing")
+                    return
+                if any(ship["cargo"].values()):
+                    self._pause_auto_route(ship, "cargo", "The ship has other cargo aboard; clear its hold before continuing")
+                    return
+                try:
+                    receipt = self._with_auto_ship(ship_id, lambda: self._trade("buy", route["good"], route["quantity"]))
+                except GameError as exc:
+                    self._pause_auto_route(ship, "supply", str(exc))
+                    return
+                route["purchase_cost"] = receipt["total"]
+                route["spent"] += receipt["total"]
+                route["stage"] = "to_destination"
+                route["special_approved"] = False
+                route["last_event"] = f"Loaded {route['quantity']} {route['good']} at {route['origin']}"
+                continue
+            if stage == "sell":
+                if ship["cargo"].get(route["good"], 0) < route["quantity"]:
+                    self._pause_auto_route(ship, "cargo", "The planned consignment is missing; inspect the hold")
+                    return
+                receipt = self._with_auto_ship(ship_id, lambda: self._trade("sell", route["good"], route["quantity"]))
+                profit = receipt["total"] - route["purchase_cost"]
+                route["earned"] += receipt["total"]
+                route["profit"] += profit
+                route["completed_runs"] += 1
+                route["last_event"] = f"Sold at {route['destination']} · {profit:+} cr net (before fuel/repairs)"
+                self._route_event(ship, "auto_route_delivery", good=route["good"],
+                                  quantity=route["quantity"], profit=profit,
+                                  completed_runs=route["completed_runs"])
+                if route["completed_runs"] >= route["max_runs"]:
+                    route["status"] = "completed"
+                    self._route_event(ship, "auto_route_completed", runs=route["completed_runs"], profit=route["profit"])
+                    return
+                route["stage"] = "to_origin"
+                route["next_tick"] = self.tick + 1
+                return
+
+    def _advance_auto_routes(self) -> None:
+        for ship_id in list(self.fleet):
+            if ship_id in self.fleet:
+                self._advance_auto_ship(ship_id)
+
+    def _start_auto_route(self, ship_id: str, origin: str, destination: str,
+                          good: str, quantity: int, max_runs: int = 3) -> dict:
+        ship = self._docked_ship(ship_id)
+        if (origin not in self.galaxies["home"]["ports"] or
+                destination not in self.galaxies["home"]["ports"] or origin == destination or
+                good not in GOODS or type(quantity) is not int or quantity < 1 or
+                type(max_runs) is not int or not 1 <= max_runs <= 20):
+            raise GameError("choose two different home ports, valid freight, and 1–20 runs")
+        if ship.get("galaxy", "home") != "home" or ship.get("vip_job") or any(ship["cargo"].values()):
+            raise GameError("autopilot needs an empty ship docked in the home galaxy with no passenger")
+        if quantity > ship["capacity"]:
+            raise GameError("consignment exceeds this ship's hold")
+        if ship.get("auto_route", {}).get("status") in ("running", "paused"):
+            raise GameError("stop the current route before planning another")
+        ship["auto_route_serial"] = ship.get("auto_route_serial", 0) + 1
+        ship["auto_route"] = {"origin": origin, "destination": destination, "good": good,
+            "quantity": quantity, "max_runs": max_runs, "completed_runs": 0,
+            "spent": 0, "earned": 0, "profit": 0, "purchase_cost": 0,
+            "status": "running", "stage": "to_origin", "created_tick": self.tick,
+            "serial": ship["auto_route_serial"],
+            "next_tick": self.tick, "event_number": 0, "special_approved": False,
+            "pause_code": "", "pause_reason": "", "last_event": "Route commissioned"}
+        self._advance_auto_ship(ship_id)
+        return {"ship_id": ship_id, "route": deepcopy(ship["auto_route"]),
+                "source": "local_simulation"}
+
+    def _pause_auto_route_command(self, ship_id: str) -> dict:
+        ship = self.fleet.get(ship_id)
+        if not ship or ship.get("auto_route", {}).get("status") != "running":
+            raise GameError("no running local route on that ship")
+        self._pause_auto_route(ship, "manual", "Paused by captain")
+        return {"ship_id": ship_id, "status": "paused"}
+
+    def _resume_auto_route(self, ship_id: str) -> dict:
+        ship = self.fleet.get(ship_id)
+        if not ship or ship.get("auto_route", {}).get("status") != "paused":
+            raise GameError("no paused local route on that ship")
+        if ship["auto_route"].get("pause_code") in ("hazard", "special_cargo"):
+            raise GameError("approve the hazard or special shipment explicitly before resuming")
+        ship["auto_route"].update(status="running", pause_code="", pause_reason="")
+        self._advance_auto_ship(ship_id)
+        return {"ship_id": ship_id, "route": deepcopy(ship["auto_route"])}
+
+    def _approve_auto_leg(self, ship_id: str, pirate_stance: str = "pay") -> dict:
+        ship = self.fleet.get(ship_id)
+        route = ship.get("auto_route", {}) if ship else {}
+        if route.get("status") != "paused" or route.get("pause_code") not in ("hazard", "special_cargo"):
+            raise GameError("no hazardous leg or special cargo is awaiting authorization")
+        if route["pause_code"] == "special_cargo":
+            route.update(status="running", pause_code="", pause_reason="", special_approved=True)
+            self._advance_auto_ship(ship_id)
+        else:
+            if pirate_stance not in ("pay", "evade", "fight"):
+                raise GameError("choose pay, evade, or fight")
+            port = route["origin"] if route["stage"] == "to_origin" else route["destination"]
+            receipt = self._with_auto_ship(ship_id, lambda: self._travel(port, pirate_stance=pirate_stance))
+            route.update(status="running", pause_code="", pause_reason="",
+                         last_event=f"Captain approved {port} approach · {receipt['hazard_damage']} hull hazard damage")
+        return {"ship_id": ship_id, "route": deepcopy(route), "source": "local_simulation"}
+
+    def _stop_auto_route(self, ship_id: str) -> dict:
+        ship = self.fleet.get(ship_id)
+        if not ship or ship.get("auto_route", {}).get("status") not in ("running", "paused"):
+            raise GameError("no active local route to stop")
+        ship["auto_route"].update(status="stopped", pause_code="", pause_reason="",
+                                   last_event="Captain ended the route; onboard cargo was retained")
+        return {"ship_id": ship_id, "route": deepcopy(ship["auto_route"])}
 
     def award_crew_experience(self, ship_id: str, role: str, amount: int) -> dict | None:
         """Earn skills only from completed game events or verified RF receipts."""
@@ -1513,13 +1707,17 @@ class Game:
         if good not in GOODS:
             raise GameError(f"unknown good: {good}")
 
-    def _available(self) -> None:
+    def _available(self, *, maintenance: bool = False) -> None:
         if not self.active_ship_id:
             raise GameError("no surviving ship; purchase a replacement to continue")
         if self.ship["destination"] is not None:
             raise GameError("ship is in transit")
         if self.ship.get("radio_mission"):
             raise GameError("ship is assigned to a radio mission")
+        route_status = self.ship.get("auto_route", {}).get("status")
+        if (route_status in ("running", "paused") and not getattr(self, "_auto_working", False)
+                and not (maintenance and route_status == "paused")):
+            raise GameError("pause the trade autopilot for repairs and refueling, or stop it to command this ship manually")
 
     def cargo_used(self) -> int:
         return sum(self.cargo.values())
@@ -1566,6 +1764,16 @@ class Game:
                 result = self._rename_ship(**kwargs)
             elif action == "transfer_cargo":
                 result = self._transfer_cargo(**kwargs)
+            elif action == "start_auto_route":
+                result = self._start_auto_route(**kwargs)
+            elif action == "pause_auto_route":
+                result = self._pause_auto_route_command(**kwargs)
+            elif action == "resume_auto_route":
+                result = self._resume_auto_route(**kwargs)
+            elif action == "approve_auto_leg":
+                result = self._approve_auto_leg(**kwargs)
+            elif action == "stop_auto_route":
+                result = self._stop_auto_route(**kwargs)
             elif action == "hire_crew":
                 result = self._hire_crew(**kwargs)
             elif action == "assign_crew":
@@ -1878,7 +2086,7 @@ class Game:
         return {"epoch": self.clock_epoch, "advanced": elapsed, "tick": self.tick}
 
     def _repair(self) -> dict:
-        self._available()
+        self._available(maintenance=True)
         engineer = self.crew_member(self.active_ship_id, "engineer")
         discount_percent = min(90, 15 * self.haven_facilities.get("repair_bay", 0) +
                                (5 * engineer["level"] if engineer else 0))
@@ -1890,7 +2098,7 @@ class Game:
         return {"cost": cost, "condition": 100}
 
     def _refuel(self, amount: int) -> dict:
-        self._available()
+        self._available(maintenance=True)
         if type(amount) is not int or amount <= 0:
             raise GameError("fuel amount must be a positive integer")
         if self.ship["fuel"] + amount > self.ship["max_fuel"]:
@@ -1975,7 +2183,8 @@ class Game:
         return {"contract_id": contract_id, "status": "reclaimed"}
 
     def to_dict(self) -> dict:
-        return deepcopy(self.__dict__)
+        return deepcopy({key: value for key, value in self.__dict__.items()
+                         if key != "_auto_working"})
 
     @classmethod
     def from_dict(cls, data: dict) -> "Game":

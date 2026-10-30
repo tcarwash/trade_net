@@ -203,10 +203,12 @@ antagonizing them in subsequent encounters.
 - [ ] Escort, security, science and navigator specializations, crew side quests,
       retirement and unique recruit traits.
 - [ ] Multi-leg expedition planner with estimated profit, fuel and risks.
-- [ ] Opt-in automation of routine local routes. Player decisions interrupt
-      automation for hazards, special cargo and encounters.
-- [ ] Never automate actual RF transmissions without a separate reviewed
-      operating policy and explicit operator controls.
+- [x] Per-ship opt-in local buy/haul/sell routes with bounded repeat counts,
+      live market stock and prices, persistent accounting and independent ship
+      control. First discoveries, gas, pirates, asteroid blockades, rare cargo,
+      missing supply and service needs pause for captain decisions.
+- [x] Keep actual RF transmissions outside autopilot; ◇ local route orders
+      cannot queue ◉ intergalactic radio traffic.
 
 **Done when:** a player can manage several ships without repetitive micromanagement.
 
@@ -274,8 +276,8 @@ intentional, legible operator action.
 
 The current solo vertical slice includes incidents, multi-stage expeditions,
 one-time and repeating dockside encounters, six upgradable Haven facilities,
-warehouse-backed local requisitions, recruitable ship crews and co-located
-fleet cargo transfers,
+warehouse-backed local requisitions, recruitable ship crews, co-located
+fleet cargo transfers and opt-in automated local merchant runs,
 recurring local NPC haulers, rival contracts and delayed faction follow-ups.
 One-time alliance/feud arcs, four permanent fleet perks and named recurring
 nemeses now provide lasting consequences. Their shipments, missions and market

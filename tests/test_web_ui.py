@@ -178,7 +178,7 @@ class BrowserUIContractTests(unittest.TestCase):
 
     def test_fleet_crew_management_is_visible_and_state_driven(self):
         html = self.browser_html()
-        for marker in ("function renderFleetOperations(){", "renderFleetOperations();map()",
+        for marker in ("function renderFleetOperations(){", "renderFleetOperations();renderFleetAutomation();map()",
                        "state.crew_candidates", "state.crew_roles", "crewForShip(",
                        "fleet-roster-grid", "recruit-list", "crew-list",
                        "command('hire_crew'", "command('assign_crew'",
@@ -186,6 +186,16 @@ class BrowserUIContractTests(unittest.TestCase):
                        "command('transfer_cargo'", "entry.action==='hire_crew'"):
             with self.subTest(marker=marker):
                 self.assertIn(marker, html)
+
+    def test_fleet_autopilot_is_visible_separate_from_real_radio(self):
+        html = self.browser_html()
+        for marker in ("function renderFleetAutomation(){", "auto-route-grid",
+                       "command('start_auto_route'", "command('pause_auto_route'",
+                       "command('resume_auto_route'", "command('approve_auto_leg'",
+                       "command('stop_auto_route'", "AUTOPILOT REQUESTS ORDERS",
+                       "radio jumps always need a captain", "intergalactic radio · manual"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker.lower(), html.lower())
 
 
 if __name__ == "__main__":

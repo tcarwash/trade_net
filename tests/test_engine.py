@@ -6,6 +6,23 @@ from tradenet import Game, GameError
 
 
 class EconomyTests(unittest.TestCase):
+    def test_realtime_flight_progress_metadata_survives_reload_and_clears(self):
+        from unittest.mock import patch
+        game = Game.new(42)
+        with patch.object(game, 'blocked_port', return_value='Eidolon'), \
+             patch('tradenet.engine.time.time', return_value=1000):
+            trip = game.command('progress-flight', 'travel', destination='Kepler')
+        self.assertEqual(game.ship['departed_at'], 1000)
+        self.assertEqual(game.ship['travel_seconds'], trip['travel_seconds'])
+        self.assertEqual(game.ship['origin_port'], 'Haven')
+        restored = Game.from_dict(game.to_dict())
+        self.assertEqual(restored.ship['departed_at'], 1000)
+        with patch('tradenet.engine.time.time', return_value=1020):
+            restored._all_arrivals()
+        self.assertEqual(restored.location, 'Kepler')
+        self.assertNotIn('departed_at', restored.ship)
+        self.assertNotIn('travel_seconds', restored.ship)
+
     def test_faction_standings_affect_market_prices(self):
         game = Game.new(42)
         before_sell = game.price('Haven', 'food', 'sell')

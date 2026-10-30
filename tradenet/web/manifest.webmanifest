@@ -1,0 +1,16 @@
+{
+  "name": "Trade Net — Frontier Command",
+  "short_name": "Trade Net",
+  "description": "Explore, trade, and deliver across the frontier, locally and over amateur radio.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#07101a",
+  "theme_color": "#0b1825",
+  "orientation": "any",
+  "icons": [
+    {"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"},
+    {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ]
+}

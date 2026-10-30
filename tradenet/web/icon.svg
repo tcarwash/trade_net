@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="backdrop" x1="0" x2="1" y1="0" y2="1">
+      <stop stop-color="#153d56"/>
+      <stop offset="1" stop-color="#070f1e"/>
+    </linearGradient>
+    <linearGradient id="craft" x1="0" x2="1" y1="0" y2="1">
+      <stop stop-color="#c0fff1"/>
+      <stop offset="1" stop-color="#59b6df"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="512" height="512" fill="#07101a"/>
+  <rect x="0" y="0" width="512" height="512" rx="114" fill="url(#backdrop)"/>
+  <circle cx="256" cy="256" r="187" fill="none" stroke="#4a8ba3" stroke-width="3" opacity=".65"/>
+  <ellipse cx="256" cy="256" rx="204" ry="87" transform="rotate(-32 256 256)" fill="none" stroke="#91dedc" stroke-width="18" stroke-linecap="round" stroke-dasharray="745 560"/>
+  <circle cx="385" cy="167" r="24" fill="#e9bc78"/>
+  <circle cx="109" cy="348" r="14" fill="#8de2b7"/>
+  <path d="M259 93 L335 308 L264 273 L199 373 L206 241 L137 257 Z" fill="url(#craft)" stroke="#e7ffff" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M259 143 L262 248" stroke="#174e64" stroke-width="14" stroke-linecap="round"/>
+  <path d="M223 309 L189 422 L245 344" fill="#e9bc78" opacity=".9"/>
+</svg>

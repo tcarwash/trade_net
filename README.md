@@ -16,6 +16,8 @@ python -m tradenet.web --callsign AG7SU --seed 42
 
 Open **http://127.0.0.1:8765**.
 
+On a phone, the command deck becomes a full-width layout with a thumb-friendly bottom navigation bar, swipeable sector chart, and individual commodity price cards. The highlighted objective at the top points to your next useful action; when you've met the requirements, it can complete a chapter or turn in cargo/passengers directly. The contract board filters freight, VIP, and radio deliveries. Actual local flight progress is visible both on the chart and on a progress bar; orders are automatically saved by the local game server. Mobile home-screen icons and an app manifest are included for browsers that support adding local web apps to the home screen. Access from another device requires making the server reachable from that device; installation support depends on a trusted origin (typically HTTPS or localhost). Offline play is **not** supported: the interface requires its game server.
+
 1. Open **Contracts** and choose a local freight job. The board gives a delivery destination, quantity, deadline, and guaranteed payout.
 2. Buy the requested goods (the suggested pickup is a route hint, not a restriction), select the destination on the map, and dispatch your ship.
 3. Deliver the cargo from the contract board when docked, or sell speculative cargo at higher-demand markets.

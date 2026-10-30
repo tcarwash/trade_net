@@ -1003,7 +1003,12 @@ def serve(host="127.0.0.1", port=8765, save="galaxy.json", seed=42, callsign="AG
                 return
             assets = {"/": ("index.html", "text/html; charset=utf-8"),
                       "/index.html": ("index.html", "text/html; charset=utf-8"),
-                      "/ships.svg": ("ships.svg", "image/svg+xml")}
+                      "/ships.svg": ("ships.svg", "image/svg+xml"),
+                      "/icon.svg": ("icon.svg", "image/svg+xml"),
+                      "/icon-192.png": ("icon-192.png", "image/png"),
+                      "/icon-512.png": ("icon-512.png", "image/png"),
+                      "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"),
+                      "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json")}
             if self.path not in assets:
                 self.send_error(404)
                 return

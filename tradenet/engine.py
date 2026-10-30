@@ -308,6 +308,9 @@ class Game:
                     ship["destination"] = None
                     ship["arrival_tick"] = None
                     ship.pop("arrival_at", None)
+                    ship.pop("departed_at", None)
+                    ship.pop("travel_seconds", None)
+                    ship.pop("origin_port", None)
                     if ship.get("galaxy", "home") == "home" and ship["location"] not in self.visited_ports:
                         self.visited_ports.append(ship["location"])
                         explore_bonus = 90 + min(100, self.factions["explorers"] * 10)
@@ -632,6 +635,9 @@ class Game:
         self.ship["destination"] = destination
         self.ship["arrival_tick"] = None
         self.ship["arrival_at"] = arrival_at
+        self.ship["departed_at"] = arrival_at - travel_seconds
+        self.ship["travel_seconds"] = travel_seconds
+        self.ship["origin_port"] = self.location
         return {"destination": destination, "arrival_tick": self.tick,
                 "arrival_at": arrival_at, "fuel_cost": fuel_cost,
                 "travel_seconds": travel_seconds, "hazard": risk,

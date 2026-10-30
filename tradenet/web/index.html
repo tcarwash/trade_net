@@ -3,13 +3,14 @@
 <title>Trade Net · Galaxy Command</title>
 <style>
 :root{color-scheme:dark;font:14px system-ui,sans-serif;background:#09111f;color:#e4ecf7}*{box-sizing:border-box}body{margin:0}header{display:flex;align-items:center;justify-content:space-between;padding:18px 26px;background:#101d30;border-bottom:1px solid #2b4058}h1{font-size:22px;margin:0;letter-spacing:.08em}h2{font-size:15px;color:#9ac9eb;text-transform:uppercase;letter-spacing:.12em;margin:0 0 14px}small,.muted{color:#91a3bc}.pill{border:1px solid #365272;border-radius:20px;padding:7px 12px;color:#a9d8f2}main{display:grid;grid-template-columns:minmax(360px,1.5fr) minmax(310px,1fr);gap:16px;padding:16px;max-width:1600px;margin:auto}.panel{background:#111f33;border:1px solid #2b4058;border-radius:14px;padding:18px;min-width:0}.map{background:radial-gradient(ellipse at center,#1b3550,#081323 70%);border-radius:10px;position:relative;overflow:hidden}.map svg{display:block;width:100%;height:auto}svg text{font-family:system-ui;fill:#c5daed;font-size:12px}.edge{cursor:pointer}.node{cursor:pointer;stroke:#e5f6ff;stroke-width:1.5}.reported{stroke-dasharray:5 6}.cols{display:grid;grid-template-columns:1fr 1fr;gap:9px}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.stat{background:#172a40;padding:12px;border-radius:9px}.stat b{font-size:19px;color:#eaf7ff;display:block}button,input,select{font:inherit;color:#e4ecf7;border:1px solid #36516c;background:#1b3049;border-radius:7px;padding:9px;min-width:0}button{cursor:pointer;background:#176b91;border-color:#278fb8;font-weight:650}button:hover{background:#2389b5}button.secondary{background:#25374d}label{display:flex;flex-direction:column;gap:5px;color:#a9bfd4;font-size:12px}form{display:grid;gap:10px}form .row{display:flex;gap:8px}.row>*{flex:1;min-width:0}table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:8px 5px;border-bottom:1px solid #263c53;text-align:right}td:first-child,th:first-child{text-align:left}tr:hover{background:#1b3047}.log{height:190px;overflow:auto;background:#0a1728;border-radius:8px;padding:12px;font:12px ui-monospace,monospace;white-space:pre-wrap;color:#a9dfc6}.accent{color:#75e7bc}.warning{color:#f4c67f}.error{color:#ff9b9b}#detail{min-height:52px;color:#b9cce0}footer{text-align:center;color:#7890aa;padding:20px}@media(max-width:950px){main{grid-template-columns:1fr}}@media(max-width:520px){.stats{grid-template-columns:1fr 1fr}header{padding:15px}}
+body:not(.debug) .debug-only{display:none!important}body:not(.debug) .debug-inline{display:none!important}.ship-marker{pointer-events:none;filter:drop-shadow(0 0 7px #8de9ff)}.transfer-track{stroke:#2b5269;stroke-width:8;stroke-linecap:round}.transfer-progress{stroke:#6be9c3;stroke-width:8;stroke-linecap:round}.map-label{fill:#dbf4ff;font-size:11px}.ship-route{stroke:#76ddff;stroke-width:3;stroke-dasharray:6 7;opacity:.55}
 </style></head><body>
-<header><div><h1>✦ TRADE NET</h1><small>Frontier trade & radio logistics</small><div><small id="clockDisplay">UTC economy clock</small></div></div><div class="pill">● LOCAL SIMULATION · NO RF</div></header>
+<header><div><h1>✦ TRADE NET</h1><small>Frontier trade & radio logistics</small><div><small id="clockDisplay">UTC economy clock</small></div></div><div style="display:flex;align-items:center;gap:10px"><button id="debugToggle" class="secondary" type="button" aria-pressed="false">Debug: Off</button><div class="pill">● LOCAL SIMULATION · NO RF</div></div></header>
 <main>
 <section class="panel"><h2>Galaxy network</h2><div class="stats"><div class="stat"><small>Home galaxy</small><b id="name">—</b></div><div class="stat"><small>Rare abundance</small><b id="rare">—</b></div><div class="stat"><small>Credits</small><b id="credits">—</b></div></div><div class="map" style="margin-top:14px"><svg id="galaxy" viewBox="0 0 700 460" role="img" aria-label="Discovered starports and radio links"></svg></div><div id="detail">Select a starport or link to inspect it.</div><div style="margin-top:12px;color:#94abc2">● <span class="accent">Measured link</span> &nbsp; ┄ Reported next hop &nbsp; · Edge width: verified goodput</div></section>
-<section class="panel"><h2>Radio operations</h2><form id="sendForm"><label>Peer callsign<input name="peer" value="K7OR" maxlength="32" required></label><div class="cols"><label>Payload (bytes)<input name="bytes" type="number" min="1" max="65536" value="512"></label><label>Frame loss probability<input name="loss" type="number" min="0" max="1" step=".05" value=".15"></label></div><label>Reported next hops (comma separated)<input name="neighbors" placeholder="W7ABC, N0XYZ" maxlength="150"></label><button>Simulate on-air transfer</button></form><p class="muted">Completed transfers reveal peers; their advertised next hops remain unverified. Frame loss consumes retries and airtime, never inventory.</p><h2 style="margin-top:20px">Comms journal</h2><div class="log" id="log">Loading…</div></section>
+<section class="panel"><h2>Comms journal</h2><div class="log" id="log">Loading…</div><div class="debug-only"><h2 style="margin-top:20px">Radio diagnostics</h2><form id="sendForm"><label>Peer callsign<input name="peer" value="K7OR" maxlength="32" required></label><div class="cols"><label>Payload (bytes)<input name="bytes" type="number" min="1" max="65536" value="512"></label><label>Frame loss probability<input name="loss" type="number" min="0" max="1" step=".05" value=".15"></label></div><label>Reported next hops (comma separated)<input name="neighbors" placeholder="W7ABC, N0XYZ" maxlength="150"></label><button>Simulate on-air transfer</button></form><p class="muted">Simulated discovery only; no real RF is transmitted.</p></div></section>
 <section class="panel"><h2>Market & cargo</h2><div id="ship" class="muted"></div><table><thead><tr><th>Commodity</th><th>Stock</th><th>Buy</th><th>Sell</th><th>Hold</th></tr></thead><tbody id="market"></tbody></table><form id="tradeForm" style="margin-top:14px"><div class="cols"><label>Commodity<select name="good" id="goods"></select></label><label>Quantity<input name="amount" type="number" value="1" min="1" max="10000"></label></div><div class="row"><button name="action" value="buy">Buy cargo</button><button name="action" value="sell" class="secondary">Sell cargo</button></div></form></section>
-<section class="panel"><h2>Fleet dispatch</h2><div id="fleet" class="stats" style="grid-template-columns:repeat(2,1fr)"></div><form id="fleetForm" style="margin-top:16px"><label>Destination<select id="destination" name="destination"></select></label><div class="row"><button name="action" value="travel">Dispatch ship</button><button name="action" value="sync_clock" class="secondary">Sync UTC clock</button></div><div class="row"><button name="action" value="refuel" class="secondary">Refuel 5</button><button name="action" value="repair" class="secondary">Repair</button><button name="action" value="upgrade" class="secondary">Upgrade hold</button></div></form><p class="muted">Economy advances on shared 5-minute UTC boundaries, including offline catch-up. Radio-window buttons remain manual simulator controls.</p></section>
+<section class="panel"><h2>Fleet dispatch</h2><div id="fleet" class="stats" style="grid-template-columns:repeat(2,1fr)"></div><form id="fleetForm" style="margin-top:16px"><label>Destination<select id="destination" name="destination"></select></label><button name="action" value="travel">Dispatch ship</button><div class="row"><button name="action" value="refuel" class="secondary">Refuel 5</button><button name="action" value="repair" class="secondary">Repair</button><button name="action" value="upgrade" class="secondary">Upgrade hold</button></div><div class="row debug-inline"><button name="action" value="sync_clock" class="secondary">Sync UTC clock</button></div></form><p class="muted debug-only">Economy advances on shared 5-minute UTC boundaries, including offline catch-up.</p></section>
 <section class="panel" style="grid-column:1/-1"><h2>Trade contracts · AI demand board</h2><p class="muted">Contracts tell you which goods to bring to a radio connection. Buy cargo first, accept to reserve it, then dispatch across a direct or courier route. These are simulated NPC settlements; no RF or remote ledger is involved.</p><div id="contracts" class="cols" style="grid-template-columns:repeat(auto-fit,minmax(255px,1fr))"></div></section>
 <section class="panel" style="grid-column:1/-1"><h2>Intergalactic exchange laboratory</h2><p class="muted">Two independent simulated galaxies and ledgers. A matching delivery receipt authorizes settlement; a packet transfer alone doesn't move cargo or credits. This demonstrates the eventual RF protocol, but both authorities run inside this local process.</p><div id="exchange" class="cols"></div><form id="exchangeForm" style="margin-top:12px"><div class="cols"><label>Transmission load<select name="weight" id="weightClass"><option value="light">Light · bare trade</option><option value="medium">Medium · second-hop ore hint</option><option value="heavy">Heavy · second-hop market bulletin</option></select></label><label>Simulated frame loss<input name="loss" type="number" min="0" max="1" step=".05" value=".15"></label></div><label>Optional relay callsign<input name="relay" placeholder="SIM-RELAY" maxlength="32"></label><div class="row"><button name="action" value="exchange_reserve">Reserve both sides</button><button name="action" value="exchange_queue">Queue async freight</button><button name="action" value="mail_step">Advance radio window</button></div><div class="row"><button name="action" value="exchange_settle">Settle receipt</button><button name="action" value="exchange_modem_upgrade" class="secondary">Buy faster ship</button></div><div class="row"><button name="action" value="exchange_dispatch" class="secondary">Legacy immediate simulation</button></div></form><div id="mailStatus" class="muted" style="margin-top:12px"></div><button id="toggleRemote" class="secondary" style="margin-top:10px">Toggle destination online/offline</button></section>
 </main><footer>Trade Net prototype · Local-only server · No automatic radio transmissions</footer>
@@ -25,6 +26,67 @@ function map(){let s=el('galaxy');s.replaceChildren();let names=new Set([state.n
 for(let i=0;i<75;i++){let x=(i*173+43)%700,y=(i*101+29)%460;s.appendChild(svg('circle',{cx:x,cy:y,r:i%6===0?1.5:.7,fill:'#789dbd',opacity:.4}))}
 for(let [key,l] of Object.entries(state.network.links)){let a=positions[l.source],b=positions[l.destination];if(!a||!b)continue;let observed=l.kind==='observed',width=observed?Math.min(7,1.5+Math.log2(1+(l.goodput_bps||0))/2):1.5;let line=svg('line',{x1:a.x,y1:a.y,x2:b.x,y2:b.y,stroke:observed?'#52e0b4':'#d8ad65','stroke-width':width,'stroke-dasharray':observed?'':'6 6',opacity:observed?.85:.65,class:'edge'});line.addEventListener('click',()=>{el('detail').textContent=`${key} · ${l.kind} · ${l.goodput_bps||0} B/s goodput · ${l.samples||0} samples · ${l.completion===undefined?'unverified':Math.round(l.completion*100)+'% completion'}`});s.appendChild(line)}
 nodes.forEach((n,i)=>{let p=positions[n],kind=n.startsWith('NPC:')?'npc':state.network.peers[n]?.kind||'reported',color=i===0?'#76ddff':kind==='npc'?'#b58eec':kind==='direct'?'#67e9b4':'#e6b979';let c=svg('circle',{cx:p.x,cy:p.y,r:i===0?13:kind==='npc'?8:10,fill:color,class:'node',opacity:kind==='reported'?.7:1});c.addEventListener('click',()=>el('detail').textContent=`${n} · ${kind} · ${kind==='reported'?'learned from a neighbor, not directly verified':'known starport'}`);s.appendChild(c);s.appendChild(svg('text',{x:p.x,y:p.y+25,'text-anchor':'middle'},n.replace('NPC:','')))});
+drawShipOverlay(s,positions);
+}
+// Ship positions are derived from actual game and mail state. Animations are visual only.
+let previousShip=null;
+function shipGlyph(canvas,x,y,label,from=null){
+  let group=svg('g',{class:'ship-marker',transform:`translate(${x} ${y})`});
+  group.appendChild(svg('path',{d:'M0 -15 L11 10 L0 5 L-11 10 Z',fill:'#88f4ff',stroke:'#0b2639','stroke-width':2}));
+  group.appendChild(svg('text',{x:0,y:29,'text-anchor':'middle',class:'map-label'},label));
+  if(from && (from.x!==x||from.y!==y)){
+    let animation=svg('animateTransform',{attributeName:'transform',type:'translate',from:`${from.x} ${from.y}`,to:`${x} ${y}`,dur:'1s',fill:'freeze'});
+    group.appendChild(animation);
+  }
+  canvas.appendChild(group);
+}
+function drawShipOverlay(canvas,positions){
+  let g=state.game,here=positions['NPC:'+g.location];
+  if(here){
+    let destination=g.ship.destination,there=destination&&positions['NPC:'+destination];
+    if(there){
+      canvas.appendChild(svg('line',{x1:here.x,y1:here.y,x2:there.x,y2:there.y,class:'ship-route'}));
+      // Brief departure animation, then a parked in-flight marker until the next UTC arrival tick.
+      let midpoint={x:(here.x+there.x)/2,y:(here.y+there.y)/2};
+      shipGlyph(canvas,midpoint.x,midpoint.y,'In flight → '+destination,previousShip?.destination===destination?null:here);
+      el('transportStatus').textContent=`Ship en route: ${g.location} → ${destination} · arrival tick ${g.ship.arrival_tick}`;
+      previousShip={location:g.location,destination};
+    }else{
+      let arrived=previousShip?.destination===g.location;
+      let start=arrived&&positions['NPC:'+previousShip.location];
+      let midpoint=start?{x:(start.x+here.x)/2,y:(start.y+here.y)/2}:null;
+      shipGlyph(canvas,here.x,here.y,'Your ship · '+g.location,midpoint);
+      previousShip={location:g.location,destination:null};
+      el('transportStatus').textContent=`Your ship is docked at ${g.location}`;
+    }
+  }
+  // Draw the current radio hop with a ship along the link; retries/loss delay its progress.
+  let messages=Object.values(state.mail.messages).filter(m=>m.type==='data'&&!['delivered','acknowledged','expired'].includes(m.status));
+  let message=messages.find(m=>m.status==='transmitting')||messages[0];
+  if(!message)return;
+  let route=message.route,hop=message.hop;
+  if(hop>=route.length-1)return;
+  let endpoints=[route[hop],route[hop+1]],known={...positions};
+  known[state.network.local_id]=positions[state.network.local_id];
+  // The demo exchange's stations may not have been discovered on RF; show them as lab nodes.
+  for(let i=0;i<endpoints.length;i++){
+    let id=endpoints[i];
+    if(!known[id]){
+      let index=Object.keys(state.mail.stations).indexOf(id);
+      known[id]={x:510+((index%2)*95),y:110+(Math.floor(index/2)*150)};
+      canvas.appendChild(svg('circle',{cx:known[id].x,cy:known[id].y,r:9,fill:'#e0bc78',class:'node'}));
+      canvas.appendChild(svg('text',{x:known[id].x,y:known[id].y+23,'text-anchor':'middle'},id));
+    }
+  }
+  let a=known[endpoints[0]],b=known[endpoints[1]];
+  if(!a||!b)return;
+  let count=Math.ceil(message.payload_hex.length/2/state.mail.frame_bytes);
+  let fraction=Math.max(0,Math.min(1,message.received_parts.length/Math.max(1,count)));
+  canvas.appendChild(svg('line',{x1:a.x,y1:a.y,x2:b.x,y2:b.y,class:'transfer-track'}));
+  let x=a.x+(b.x-a.x)*fraction,y=a.y+(b.y-a.y)*fraction;
+  canvas.appendChild(svg('line',{x1:a.x,y1:a.y,x2:x,y2:y,class:'transfer-progress'}));
+  shipGlyph(canvas,x,y,`${Math.round(fraction*100)}% · ${message.id}`);
+  el('transportStatus').textContent+=` · Radio freight ${endpoints.join(' → ')}: ${Math.round(fraction*100)}% (${message.frames_lost} frames lost)`;
 }
 function render(){let g=state.game;el('name').textContent=g.name;el('rare').textContent=g.specialization;el('credits').textContent=g.credits.toLocaleString()+' cr';el('clockDisplay').textContent=`UTC epoch ${state.clock.epoch} · next tick ${new Date(state.clock.next_boundary_utc*1000).toISOString().slice(11,16)}Z`;el('ship').textContent=`At ${g.location} · Tick ${g.tick} · Cargo ${Object.values(g.cargo).reduce((a,b)=>a+b,0)}/${g.ship.capacity}`;el('market').replaceChildren();state.goods.forEach(good=>{let row=document.createElement('tr');[good,g.ports[g.location].stock[good],state.prices[g.location][good].buy,state.prices[g.location][good].sell,g.cargo[good]].forEach(v=>{let cell=document.createElement('td');cell.textContent=v;row.appendChild(cell)});el('market').appendChild(row)});el('goods').innerHTML=state.goods.map(x=>`<option>${x}</option>`).join('');el('destination').innerHTML=Object.keys(g.ports).map(x=>`<option ${x===g.location?'disabled':''}>${x}</option>`).join('');el('fleet').innerHTML=`<div class="stat"><small>Fuel</small><b>${g.ship.fuel}/${g.ship.max_fuel}</b></div><div class="stat"><small>Condition</small><b>${g.ship.condition}%</b></div><div class="stat"><small>Capacity</small><b>${g.ship.capacity}</b></div><div class="stat"><small>Travel</small><b style="font-size:14px">${g.ship.destination||'Docked'}</b></div>`;map();renderContracts();renderExchange()}
 function renderExchange(){let f=state.federation,t=Object.values(f.trades)[0],container=el('exchange');if(!t){container.textContent='No trade offered';return}container.replaceChildren();for(let [id,w] of Object.entries(f.worlds)){let item=document.createElement('div');item.className='stat';let heading=document.createElement('b');heading.textContent=id+' · '+w.specialization+' rich';let p=document.createElement('p');p.className='muted';p.textContent=`Credits ${w.credits} · ${t.good} cargo ${w.cargo[t.good]} · ${id===t.seller?'seller':'buyer'} · modem tier ${w.ship.modem_tier||0}`;item.append(heading,p);container.append(item)}let detail=document.createElement('div');detail.className='stat';detail.style.gridColumn='1/-1';detail.textContent=`${t.id}: ${t.quantity} ${t.good} for ${t.quantity*t.unit_price} credits · ${t.status} · custody ${t.custody||'none'} · attempts ${t.attempts} · receipt ${t.receipt?'received':'pending'}`;container.append(detail);let msg=state.mail.messages['trade:'+t.id],ack=state.mail.messages['ack:trade:'+t.id];el('mailStatus').textContent=`Mail tick ${state.mail.tick} · ${msg?'Outbound '+msg.status+' at '+msg.route[msg.hop]+' · '+msg.frames_attempted+' frames, '+msg.frames_lost+' lost · '+msg.bandwidth_hz+' Hz tier':'No queued parcel'} · ${ack?'ACK '+ack.status:'no ACK'} · destination ${state.mail.stations[t.buyer]?.online?'online':'offline'}`}
@@ -34,6 +96,15 @@ el('fleetForm').addEventListener('submit',e=>{e.preventDefault();let a=e.submitt
 el('sendForm').addEventListener('submit',e=>{e.preventDefault();let f=new FormData(e.target),neighbors=String(f.get('neighbors')).split(',').map(x=>x.trim()).filter(Boolean).map(peer=>({peer,goodput_bps:35}));api({action:'simulate',peer:String(f.get('peer')).trim().toUpperCase(),bytes:Number(f.get('bytes')),loss:Number(f.get('loss')),neighbors}).catch(e=>log(e.message,true))});
 el('exchangeForm').addEventListener('submit',e=>{e.preventDefault();let f=new FormData(e.target),t=Object.values(state.federation.trades)[0],relay=String(f.get('relay')).trim().toUpperCase(),route=relay?[t.seller,relay,t.buyer]:[t.seller,t.buyer];let body={action:e.submitter.value,trade_id:t.id,loss:Number(f.get('loss')),weight:String(f.get('weight')),id:'modem-'+Date.now()};if(t.status==='reserved')body.route=route;api(body).catch(e=>log(e.message,true))});
 el('toggleRemote').addEventListener('click',()=>{let t=Object.values(state.federation.trades)[0],online=state.mail.stations[t.buyer]?.online;api({action:'mail_station',station:t.buyer,online:!online}).catch(e=>log(e.message,true))});
+// The debug panel keeps the simulator and protocol test controls accessible without
+// turning them into primary gameplay actions. This setting is session-local.
+el('exchangeForm').closest('section').classList.add('debug-only');
+el('debugToggle').addEventListener('click',()=>{
+  let enabled=document.body.classList.toggle('debug');
+  el('debugToggle').textContent='Debug: '+(enabled?'On':'Off');
+  el('debugToggle').setAttribute('aria-pressed',String(enabled));
+});
+el('galaxy').setAttribute('aria-label','Galaxy map with ship at its current planet and radio freight progress');
 refresh().catch(e=>log(e.message,true));
 setInterval(()=>refresh().catch(e=>log(e.message,true)),30000);
 </script></body></html>

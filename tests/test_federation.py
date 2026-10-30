@@ -191,6 +191,50 @@ class FederationTests(unittest.TestCase):
         with self.assertRaises(GameError):
             self.f.trade_payload(t, "medium", {})
 
+    def test_mission_uses_selected_ship_and_releases_after_ack(self):
+        self.propose()
+        self.f.reserve("T1")
+        seller = self.f.worlds[self.seller]
+        bought = seller.command("extra", "purchase_ship", tier=2)
+        ship_id = bought["ship_id"]
+        mail = MailNetwork()
+        msg = self.f.queue_trade(mail, "T1", ship_id=ship_id)
+        self.assertEqual(msg["bandwidth_hz"], 2400)
+        self.assertEqual(seller.fleet[ship_id]["radio_mission"], "T1")
+        for _ in range(20):
+            mail.step(loss=0, budget_frames=64)
+            self.f.sync_mail(mail)
+            if self.f.trades["T1"]["status"] == "delivered":
+                break
+        self.assertEqual(self.f.trades["T1"]["status"], "delivered")
+        self.assertNotIn("radio_mission", seller.fleet[ship_id])
+
+    def test_failed_mission_returns_damaged_ship_and_hard_mode_destroys(self):
+        for hard in (False, True):
+            f = Federation.demo()
+            seller, buyer = list(f.worlds)
+            good = f.worlds[seller].specialization
+            f.propose("FAIL", seller, buyer, good, 1, 100)
+            f.reserve("FAIL")
+            world = f.worlds[seller]
+            if hard:
+                world.command("hard", "set_hard_mode", enabled=True)
+            ship_id = world.active_ship_id
+            world.fleet[ship_id]["condition"] = 20
+            mail = MailNetwork()
+            msg = f.queue_trade(mail, "FAIL")
+            msg["ttl"] = 1
+            mail.step(loss=1)
+            mail.step(loss=1)
+            changes = f.sync_mail(mail)
+            self.assertEqual(f.trades["FAIL"]["status"], "reconcile_required")
+            self.assertEqual(changes[0]["ship_result"]["destroyed"], hard)
+            if hard:
+                self.assertNotIn(ship_id, world.fleet)
+            else:
+                self.assertEqual(world.fleet[ship_id]["location"], "Haven")
+                self.assertEqual(world.fleet[ship_id]["condition"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

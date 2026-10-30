@@ -1239,6 +1239,7 @@ class Game:
             self._bind_ship()
         self.observe_markets()
         self._advance_auto_routes()
+        self._gather_idle_ships()
 
     def _select_ship(self, ship_id: str) -> dict:
         if ship_id not in self.fleet:
@@ -1451,6 +1452,10 @@ class Game:
                 self._with_auto_ship(ship_id, depart)
                 return
             if stage == "buy":
+                if (route.get("kind") == "supply" and
+                        self.haven_warehouse_capacity() - sum(self.export_warehouse.values()) < route["quantity"]):
+                    self._pause_auto_route(ship, "warehouse", "Haven export warehouse needs more space before the next collection")
+                    return
                 if route["good"] in RARE and not route.get("special_approved"):
                     self._pause_auto_route(ship, "special_cargo", f"Rare {route['good']} requires captain approval before purchasing")
                     return
@@ -1472,18 +1477,32 @@ class Game:
                 if ship["cargo"].get(route["good"], 0) < route["quantity"]:
                     self._pause_auto_route(ship, "cargo", "The planned consignment is missing; inspect the hold")
                     return
-                receipt = self._with_auto_ship(ship_id, lambda: self._trade("sell", route["good"], route["quantity"]))
-                profit = receipt["total"] - route["purchase_cost"]
-                route["earned"] += receipt["total"]
-                route["profit"] += profit
+                if route.get("kind") == "supply":
+                    try:
+                        receipt = self._with_auto_ship(ship_id, lambda: self._unload_export(route["good"], route["quantity"]))
+                    except GameError as exc:
+                        self._pause_auto_route(ship, "warehouse", str(exc))
+                        return
+                    route["delivered"] = route.get("delivered", 0) + route["quantity"]
+                    route["last_event"] = f"Stockpiled {route['quantity']} {route['good']} at Haven · {receipt['warehouse']} stored"
+                    self._route_event(ship, "auto_route_stockpiled", good=route["good"],
+                                      quantity=route["quantity"], warehouse=receipt["warehouse"],
+                                      delivered=route["delivered"])
+                else:
+                    receipt = self._with_auto_ship(ship_id, lambda: self._trade("sell", route["good"], route["quantity"]))
+                    profit = receipt["total"] - route["purchase_cost"]
+                    route["earned"] += receipt["total"]
+                    route["profit"] += profit
+                    route["last_event"] = f"Sold at {route['destination']} · {profit:+} cr net (before fuel/repairs)"
+                    self._route_event(ship, "auto_route_delivery", good=route["good"],
+                                      quantity=route["quantity"], profit=profit,
+                                      completed_runs=route["completed_runs"] + 1)
                 route["completed_runs"] += 1
-                route["last_event"] = f"Sold at {route['destination']} · {profit:+} cr net (before fuel/repairs)"
-                self._route_event(ship, "auto_route_delivery", good=route["good"],
-                                  quantity=route["quantity"], profit=profit,
-                                  completed_runs=route["completed_runs"])
                 if route["completed_runs"] >= route["max_runs"]:
                     route["status"] = "completed"
-                    self._route_event(ship, "auto_route_completed", runs=route["completed_runs"], profit=route["profit"])
+                    self._route_event(ship, "auto_route_completed", runs=route["completed_runs"],
+                                      profit=route["profit"], delivered=route.get("delivered", 0),
+                                      kind=route.get("kind", "trade"))
                     return
                 route["stage"] = "to_origin"
                 route["next_tick"] = self.tick + 1
@@ -1494,8 +1513,34 @@ class Game:
             if ship_id in self.fleet:
                 self._advance_auto_ship(ship_id)
 
+    def _gather_idle_ships(self) -> None:
+        """Park unused, unselected home-galaxy vessels at Haven when safe.
+
+        No radio traffic is involved. We never take over the selected vessel,
+        interrupt an assignment, or commit to a hazardous approach unaided.
+        """
+        for ship_id, ship in self.fleet.items():
+            if (ship_id == self.active_ship_id or ship.get("galaxy", "home") != "home"
+                    or ship.get("location") == "Haven" or ship.get("destination")
+                    or ship.get("radio_mission") or ship.get("vip_job")
+                    or ship.get("voyage") or any(ship["cargo"].values())
+                    or ship.get("auto_route", {}).get("status") in ("running", "paused")
+                    or ship.get("condition", 0) < 10 or self.blocked_port() == "Haven"
+                    or self.route_risk(ship["location"], "Haven")["kind"] != "clear"):
+                continue
+            try:
+                receipt = self._with_auto_ship(ship_id, lambda: self._travel("Haven"))
+            except GameError:
+                continue  # Wait for fuel, repairs, or a safer corridor.
+            self.journal.append({"id": f"idle-home-{ship_id}-{self.tick}-{len(self.journal)}",
+                                 "tick": self.tick, "action": "idle_ship_return",
+                                 "result": {"ship_id": ship_id, "ship": ship["name"],
+                                            "origin": ship["location"],
+                                            "destination": "Haven", "fuel_cost": receipt["fuel_cost"]}})
+
     def _start_auto_route(self, ship_id: str, origin: str, destination: str,
-                          good: str, quantity: int, max_runs: int = 3) -> dict:
+                          good: str, quantity: int, max_runs: int = 3,
+                          kind: str = "trade") -> dict:
         ship = self._docked_ship(ship_id)
         if (origin not in self.galaxies["home"]["ports"] or
                 destination not in self.galaxies["home"]["ports"] or origin == destination or
@@ -1504,12 +1549,15 @@ class Game:
             raise GameError("choose two different home ports, valid freight, and 1–20 runs")
         if ship.get("galaxy", "home") != "home" or ship.get("vip_job") or any(ship["cargo"].values()):
             raise GameError("autopilot needs an empty ship docked in the home galaxy with no passenger")
+        if kind not in ("trade", "supply") or (kind == "supply" and (origin == "Haven" or destination != "Haven")):
+            raise GameError("Haven procurement must source imports outside Haven and return to the export warehouse")
         if quantity > ship["capacity"]:
             raise GameError("consignment exceeds this ship's hold")
         if ship.get("auto_route", {}).get("status") in ("running", "paused"):
             raise GameError("stop the current route before planning another")
         ship["auto_route_serial"] = ship.get("auto_route_serial", 0) + 1
         ship["auto_route"] = {"origin": origin, "destination": destination, "good": good,
+            "kind": kind, "delivered": 0,
             "quantity": quantity, "max_runs": max_runs, "completed_runs": 0,
             "spent": 0, "earned": 0, "profit": 0, "purchase_cost": 0,
             "status": "running", "stage": "to_origin", "created_tick": self.tick,
@@ -1519,6 +1567,26 @@ class Game:
         self._advance_auto_ship(ship_id)
         return {"ship_id": ship_id, "route": deepcopy(ship["auto_route"]),
                 "source": "local_simulation"}
+
+    def _dispatch_haven_supply(self, origin: str, good: str, quantity: int = 3,
+                               max_runs: int = 3) -> dict:
+        """Commission one genuinely idle hull, favoring ships not under direct command."""
+        if (origin not in self.galaxies["home"]["ports"] or origin == "Haven" or
+                good not in GOODS or type(quantity) is not int or quantity < 1 or
+                type(max_runs) is not int or not 1 <= max_runs <= 20):
+            raise GameError("choose a source outside Haven, valid freight and 1–20 collection runs")
+        idle = [ship for ship in self.fleet.values()
+                if ship.get("galaxy", "home") == "home" and not ship.get("destination")
+                and not ship.get("radio_mission") and not ship.get("voyage") and not ship.get("vip_job")
+                and not any(ship["cargo"].values())
+                and ship.get("auto_route", {}).get("status") not in ("running", "paused")
+                and ship.get("capacity", 0) >= quantity]
+        if not idle:
+            raise GameError("no idle home-galaxy vessel with an empty hold and enough capacity")
+        idle.sort(key=lambda ship: (ship["id"] == self.active_ship_id,
+                                    ship["location"] != origin, -ship["condition"], -ship["fuel"], ship["id"]))
+        return self._start_auto_route(idle[0]["id"], origin, "Haven", good,
+                                      quantity, max_runs, kind="supply")
 
     def _pause_auto_route_command(self, ship_id: str) -> dict:
         ship = self.fleet.get(ship_id)
@@ -1766,6 +1834,8 @@ class Game:
                 result = self._transfer_cargo(**kwargs)
             elif action == "start_auto_route":
                 result = self._start_auto_route(**kwargs)
+            elif action == "dispatch_haven_supply":
+                result = self._dispatch_haven_supply(**kwargs)
             elif action == "pause_auto_route":
                 result = self._pause_auto_route_command(**kwargs)
             elif action == "resume_auto_route":

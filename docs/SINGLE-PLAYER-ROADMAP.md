@@ -207,6 +207,12 @@ antagonizing them in subsequent encounters.
       live market stock and prices, persistent accounting and independent ship
       control. First discoveries, gas, pirates, asteroid blockades, rare cargo,
       missing supply and service needs pause for captain decisions.
+- [x] Automatic Haven procurement: a docked empty vessel can buy from an outlying
+      market, bring imports back to the base and physically fill its bounded
+      export warehouse; idle-ship dispatch does not change active command.
+- [x] Idle, unassigned empty vessels gather at Haven on safe local routes,
+      without taking over the selected ship or moving passengers and cargo.
+      Dangerous and obstructed returns wait for a safer opportunity.
 - [x] Keep actual RF transmissions outside autopilot; ◇ local route orders
       cannot queue ◉ intergalactic radio traffic.
 
@@ -230,6 +236,14 @@ antagonizing them in subsequent encounters.
       recovery re-check the tuned frequency before sending their frames.
 - [x] Persistent two-resource long-haul manifests that can be stocked at Haven
       across multiple sessions, reserved atomically, and settled on one ACK.
+- [x] Station-level receiving does not depend on a ship at Haven: inbound
+      addressed freight settles into Haven while the entire fleet is away.
+- [x] Compact versioned Data2G station beacon (~11–20 bytes for typical
+      callsigns) with one abundance and optional open contract hint; local
+      preview, explicit one-shot live transmission, passive unverified reception
+      and duplicate suppression. This is *not* a WSPR-over-the-air format.
+- [ ] Beacon aging, neighbor discovery and contract follow-up from compact
+      advertisements, plus signal-strength metadata where the modem exposes it.
 - [ ] Local-only practice contacts and simulated neighbor discovery behind a
       **◇** simulation adapter; keep them out of live federation state.
 - [ ] Distinct **◉** verified contacts, **○** hearsay, RF signal metrics and
@@ -277,7 +291,8 @@ intentional, legible operator action.
 The current solo vertical slice includes incidents, multi-stage expeditions,
 one-time and repeating dockside encounters, six upgradable Haven facilities,
 warehouse-backed local requisitions, recruitable ship crews, co-located
-fleet cargo transfers and opt-in automated local merchant runs,
+fleet cargo transfers, automated local merchant and Haven procurement runs,
+safe idle-ship gathering at Haven and compact opt-in radio advertisements,
 recurring local NPC haulers, rival contracts and delayed faction follow-ups.
 One-time alliance/feud arcs, four permanent fleet perks and named recurring
 nemeses now provide lasting consequences. Their shipments, missions and market

@@ -193,9 +193,18 @@ class BrowserUIContractTests(unittest.TestCase):
                        "command('start_auto_route'", "command('pause_auto_route'",
                        "command('resume_auto_route'", "command('approve_auto_leg'",
                        "command('stop_auto_route'", "AUTOPILOT REQUESTS ORDERS",
-                       "radio jumps always need a captain", "intergalactic radio · manual"):
+                       "intergalactic radio · manual", "dispatch_haven_supply",
+                       "autoRouteKind", "Haven procurement"):
             with self.subTest(marker=marker):
                 self.assertIn(marker.lower(), html.lower())
+
+    def test_compact_beacon_controls_distinguish_preview_from_live_radio(self):
+        html = self.browser_html()
+        for marker in ("function renderBeacon(){", "beaconPreviewButton", "beaconSend",
+                       "radio_beacon_preview", "radio_beacon_transmit", "WSPR-like idea, not WSPR format",
+                       "Simulated stations do not key your radio", "Broadcast one compact Trade Net beacon over real radio"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, html)
 
 
 if __name__ == "__main__":

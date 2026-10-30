@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import math
+import re
 import socket
 import threading
 import time
@@ -50,6 +51,8 @@ class App:
         self.radio_processed = {}
         self.radio_assemblies = {}
         self.radio_pending_replies = {}
+        self.radio_beacons = {}
+        self.beacon_last_tx = None
         try:
             saved_radio = json.loads(self.radio_save.read_text(encoding="utf-8"))
             if isinstance(saved_radio, dict) and "transmissions" in saved_radio:
@@ -62,6 +65,8 @@ class App:
                 self.radio_processed = saved_radio.get("processed", {})
                 self.radio_assemblies = saved_radio.get("assemblies", {})
                 self.radio_pending_replies = saved_radio.get("pending_replies", {})
+                self.radio_beacons = saved_radio.get("beacons", {})
+                self.beacon_last_tx = saved_radio.get("beacon_last_tx")
             else:
                 self.radio_transmissions = saved_radio if isinstance(saved_radio, dict) else {}
                 self.radio_inbox = []
@@ -107,6 +112,8 @@ class App:
             self.radio_processed = self.game.radio_state.get("processed", self.radio_processed)
             self.radio_assemblies = self.game.radio_state.get("assemblies", self.radio_assemblies)
             self.radio_pending_replies = self.game.radio_state.get("pending_replies", self.radio_pending_replies)
+            self.radio_beacons = self.game.radio_state.get("beacons", self.radio_beacons)
+            self.beacon_last_tx = self.game.radio_state.get("beacon_last_tx", self.beacon_last_tx)
         for station in list(self.game.galaxies):
             if station != "home" and (station not in self.radio_resources or
                                        self.radio_resources[station].get("via")):
@@ -412,6 +419,10 @@ class App:
     def _handle_received_frame(self, payload):
         if not 1 <= len(payload) <= radio_exchange.MAX_FRAME_BYTES:
             return None
+        beacon = radio_exchange.decode_beacon(payload)
+        if beacon:
+            self._record_radio_beacon(beacon, payload)
+            return None
         frame = radio_exchange.decode(payload)
         if not frame:
             return None
@@ -421,6 +432,46 @@ class App:
         if frame.get("t") == "part":
             return self._receive_part(frame)
         return self._handle_radio_message(payload)
+
+    def _record_radio_beacon(self, beacon: dict, payload: bytes) -> None:
+        """Passive station intel only: no contact, credits or automatic replies."""
+        sender = beacon["callsign"]
+        if sender == self.callsign or not self._valid_station(sender):
+            return
+        with self.lock:
+            heard = getattr(self, "radio_beacons", {})
+            digest = hashlib.sha256(payload).hexdigest()[:16]
+            old = heard.get(sender)
+            entry = {**beacon, "digest": digest, "observed_at": time.time(),
+                     "verified": False, "source": "radio"}
+            heard[sender] = entry
+            self.radio_beacons = dict(list(heard.items())[-100:])
+            if not old or old.get("digest") != digest:
+                self.radio_inbox.append({"digest": digest, "received_at": entry["observed_at"],
+                    "from": sender, "to": "group", "type": "beacon",
+                    "outcome": "station advertisement", "bytes": len(payload),
+                    "details": f"{beacon['good']} abundance {beacon['abundance']}",
+                    "offers": [beacon["contract"]] if beacon.get("contract") else []})
+                self.radio_inbox = self.radio_inbox[-100:]
+            self.persist()
+
+    def _beacon_payload(self, good: str, contract_id: str = "") -> tuple[bytes, dict]:
+        self._ensure_radio_contracts()
+        if good not in GOODS:
+            raise GameError("choose a resource to advertise")
+        contract = None
+        if contract_id:
+            contract = next((c for c in self.radio_contracts.get(self.callsign, [])
+                             if c["id"] == contract_id and c.get("status", "open") == "open"), None)
+            if not contract:
+                raise GameError("choose an open station contract for the beacon")
+        # A galaxy-wide source estimate, not a claim that Haven has the goods.
+        abundance = max(port["stock"][good] for port in self.game.galaxies["home"]["ports"].values())
+        try:
+            payload = radio_exchange.encode_beacon(self.callsign, good, abundance, contract)
+        except ValueError as exc:
+            raise GameError(str(exc)) from exc
+        return payload, radio_exchange.decode_beacon(payload)
 
     def _handle_repair_request(self, frame):
         """Accept a bounded missing-part request only from the intended peer."""
@@ -824,6 +875,8 @@ class App:
             "contracts": self.radio_contracts, "resources": self.radio_resources,
             "reservations": self.radio_reservations, "processed": self.radio_processed,
             "assemblies": self.radio_assemblies}
+        radio_state["beacons"] = getattr(self, "radio_beacons", {})
+        radio_state["beacon_last_tx"] = getattr(self, "beacon_last_tx", None)
         if self.radio_pending_replies:
             radio_state["pending_replies"] = self.radio_pending_replies
         self.game.radio_state = radio_state
@@ -890,6 +943,8 @@ class App:
                     if job.get("status") == "awaiting_ack" else 0}
                     for job in self.radio_transmissions.values()],
                 "radio_inbox": deepcopy(self.radio_inbox[-20:]),
+                "radio_beacons": deepcopy(getattr(self, "radio_beacons", {})),
+                "beacon_last_tx": deepcopy(getattr(self, "beacon_last_tx", None)),
                 "radio_contacts": deepcopy(self.radio_contacts),
                 "radio_contracts": deepcopy(self.radio_contracts),
                 "radio_resources": deepcopy(self.radio_resources),
@@ -913,14 +968,37 @@ class App:
 
     def execute(self, request):
         action = request.get("action")
-        if action == "radio_status":
+        if action in ("radio_beacon_preview", "radio_beacon_transmit"):
+            good = str(request.get("good", ""))
+            contract_id = str(request.get("contract_id", ""))
+            payload, decoded = self._beacon_payload(good, contract_id)
+            if action == "radio_beacon_preview":
+                result = {**decoded, "payload_hex": payload.hex(), "status": "preview"}
+            else:
+                mode_id = str(request.get("mode_id", ""))
+                if not re.fullmatch(r"[A-Za-z0-9._+/-]{1,64}", mode_id):
+                    raise GameError("choose an eligible live Data2G mode")
+                host, command_port, kiss_port, group = self.data2g
+                with Data2GClient(host, command_port, kiss_port) as modem:
+                    modem.open_group(group, self.callsign)
+                    available = [vars(mode) for mode in modem.modes()]
+                    modes = [mode for mode in modems.eligible_modes(available, 0)
+                             if "ack" not in mode["mode_id"].lower()]
+                    selected = next((mode for mode in modes if mode["mode_id"] == mode_id), None)
+                    if (not selected or selected["bytes_per_codeword"] *
+                            selected["max_codewords"] < len(payload)):
+                        raise GameError("selected mode cannot carry this compact beacon")
+                    self._send_radio_frames(modem, payload, mode_id, 0)
+                self.beacon_last_tx = {"sent_at": time.time(), "good": good,
+                                       "contract_id": contract_id, "bytes": len(payload)}
+                result = {**decoded, "status": "sent", "mode_id": mode_id}
+        elif action == "radio_status":
             host, command_port, kiss_port, group = self.data2g
             with Data2GClient(host, command_port, kiss_port) as modem:
                 advertised = [vars(mode) for mode in modem.modes()]
             modes = self._eligible_radio_modes(advertised)
             result = {"connected": True, "host": host, "group": group, "modes": modes}
         elif action in ("radio_preview", "radio_transmit"):
-            import re
             station = str(request.get("station", ""))
             contract_id = str(request.get("contract_id", ""))
             purpose = str(request.get("purpose", "contact" if station not in self.radio_contacts else "delivery"))

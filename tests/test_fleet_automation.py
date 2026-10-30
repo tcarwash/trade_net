@@ -68,6 +68,65 @@ class FleetAutomationTests(unittest.TestCase):
         self.assertIn("Kepler", self.game.price_memory["food"]["by_port"])
         self.assertEqual(self.game.price_memory["food"]["by_port"]["Kepler"]["tick"], self.game.tick)
 
+    def test_idle_ship_stockpiles_imports_at_haven_without_transmitting(self):
+        second = self.game.command("commission", "purchase_ship", tier=0)["ship_id"]
+        original = self.game.active_ship_id
+        source_stock = self.game.galaxies["home"]["ports"]["Kepler"]["stock"]["food"]
+        receipt = self.game.command("procure", "dispatch_haven_supply", origin="Kepler",
+                                    good="food", quantity=2, max_runs=1)
+        self.assertEqual(receipt["ship_id"], second)
+        self.assertEqual(self.game.active_ship_id, original)
+        self.arrive(second)
+        self.assertEqual(self.game.fleet[second]["auto_route"]["pause_code"], "discovery")
+        self.game.command("resume-procure", "resume_auto_route", ship_id=second)
+        self.assertEqual(self.game.fleet[second]["cargo"]["food"], 2)
+        self.arrive(second)
+        route = self.game.fleet[second]["auto_route"]
+        self.assertEqual(route["status"], "completed")
+        self.assertEqual(route["delivered"], 2)
+        self.assertEqual(self.game.export_warehouse["food"], 2)
+        self.assertEqual(self.game.fleet[second]["export_cargo"]["food"], 0)
+        self.assertEqual(self.game.galaxies["home"]["ports"]["Kepler"]["stock"]["food"], source_stock - 2)
+        self.assertFalse(self.game.fleet[second].get("radio_mission"))
+        self.assertFalse(any(j["action"] == "jump" for j in self.game.journal))
+
+    def test_haven_procurement_pauses_before_buying_when_warehouse_is_full(self):
+        self.game.ship["location"] = "Kepler"
+        self.game._bind_ship()
+        self.game.export_warehouse["ore"] = self.game.haven_warehouse_capacity()
+        before_credits = self.game.credits
+        route = self.game.command("procure", "dispatch_haven_supply", origin="Kepler",
+                                  good="food", quantity=3, max_runs=2)["route"]
+        self.assertEqual(route["pause_code"], "warehouse")
+        self.assertEqual(self.game.credits, before_credits)
+        self.assertEqual(self.game.ship["cargo"]["food"], 0)
+
+    def test_unassigned_idle_vessel_returns_to_haven_without_stealing_control(self):
+        second = self.game.command("commission", "purchase_ship", tier=0)["ship_id"]
+        ship = self.game.fleet[second]
+        ship["location"] = "Kepler"
+        selected = self.game.active_ship_id
+        self.game._all_arrivals()
+        self.assertEqual(ship["destination"], "Haven")
+        self.assertEqual(self.game.active_ship_id, selected)
+        self.assertEqual(self.game.ship["location"], "Haven")
+        self.assertTrue(any(entry["action"] == "idle_ship_return" for entry in self.game.journal))
+        self.arrive(second)
+        self.assertEqual(ship["location"], "Haven")
+        self.assertIsNone(ship["destination"])
+
+    def test_idle_fleet_gathering_does_not_override_cargo_or_danger(self):
+        second = self.game.command("commission", "purchase_ship", tier=0)["ship_id"]
+        ship = self.game.fleet[second]
+        ship["location"] = "Kepler"
+        ship["cargo"]["food"] = 1
+        self.game._all_arrivals()
+        self.assertIsNone(ship["destination"])
+        ship["cargo"]["food"] = 0
+        with patch.object(Game, "route_risk", return_value=PIRATES):
+            self.game._all_arrivals()
+        self.assertIsNone(ship["destination"])
+
     def test_hazard_pauses_before_spending_fuel_then_explicit_stance_approves(self):
         with patch.object(Game, "route_risk", return_value=PIRATES):
             start = self.start()

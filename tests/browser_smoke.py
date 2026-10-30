@@ -1,6 +1,7 @@
-"""Real Chromium UX checks. Run: uv run --with playwright python tests/browser_smoke.py.
+"""Real browser UX checks. Run: uv run --with playwright python tests/browser_smoke.py.
 
-Install Chromium once with: uv run --with playwright playwright install chromium
+Install Chromium once with: uv run --with playwright playwright install chromium.
+Set TRADENET_BROWSER=firefox for Firefox; TRADENET_SCREENSHOT_DIR for snapshots.
 The server uses a disposable save; existing galaxies are never changed.
 """
 import os
@@ -22,7 +23,7 @@ class CockpitBrowserTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.playwright = sync_playwright().start()
-        cls.browser = cls.playwright.chromium.launch()
+        cls.browser = getattr(cls.playwright, os.environ.get("TRADENET_BROWSER", "chromium")).launch()
 
     @classmethod
     def tearDownClass(cls):
@@ -91,6 +92,46 @@ class CockpitBrowserTests(unittest.TestCase):
         page.emulate_media(reduced_motion="reduce")
         self.assertEqual(page.locator(".node").first.evaluate(
             "e => getComputedStyle(e).animationName"), "none")
+
+    def test_haven_supply_planner_dispatches_idle_ship(self):
+        page = self.page
+        page.get_by_role('tab', name='Fleet', exact=True).click()
+        expect(page.locator('#fleetAutomation')).to_be_visible()
+        page.locator('#autoRouteKind').select_option('supply')
+        expect(page.locator('#autoDestination')).to_have_value('Haven')
+        expect(page.locator('#autoDestination')).to_be_disabled()
+        page.locator('#autoOrigin').select_option('Kepler')
+        page.locator('#autoQuantity').fill('2')
+        page.locator('#autoRuns').fill('1')
+        expect(page.get_by_role('button', name='Dispatch an idle vessel')).to_be_enabled()
+        page.get_by_role('button', name='Dispatch an idle vessel').click()
+        expect(page.locator('#fleetAutomation .auto-route-card')).to_have_count(1)
+        expect(page.locator('#fleetAutomation .auto-route-card')).to_contain_text('Haven procurement')
+        expect(page.locator('#feedback')).to_contain_text('Haven procurement route commissioned')
+        self.snapshot('fleet-supply-desktop')
+
+    def test_beacon_preview_and_mobile_comms_are_rf_safe(self):
+        page = self.page
+        page.get_by_role('tab', name='Comms', exact=True).click()
+        expect(page.locator('#beaconPanel')).to_be_visible()
+        expect(page.locator('#beaconSend')).to_be_disabled()
+        page.locator('#beaconGood').select_option('food')
+        page.locator('#beaconPreviewButton').click()
+        expect(page.locator('#beaconQuote')).to_contain_text('bytes')
+        expect(page.locator('#feedback')).to_contain_text('Nothing transmitted')
+        page.evaluate("""() => {state.radio_beacons={AG7SU:{callsign:'AG7SU',good:'ore',abundance:5,contract:{id:'AG7SU-C0001',good:'food',quantity:2},observed_at:Date.now()/1000,verified:false}};renderBeacon()}""")
+        expect(page.locator('#beaconHeard .beacon-sighting')).to_have_count(1)
+        self.snapshot('beacon-desktop')
+        page.set_viewport_size({'width': 390, 'height': 844})
+        self.assertTrue(page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
+        expect(page.locator('#beaconPanel')).to_be_visible()
+        self.snapshot('beacon-mobile')
+
+    def snapshot(self, name):
+        directory = os.environ.get('TRADENET_SCREENSHOT_DIR')
+        if directory:
+            Path(directory).mkdir(parents=True, exist_ok=True)
+            self.page.screenshot(path=str(Path(directory) / (name + '.png')), full_page=True)
 
     def test_market_limits_maximum_and_keyboard_selection(self):
         page = self.page

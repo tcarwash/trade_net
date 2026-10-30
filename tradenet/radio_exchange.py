@@ -6,6 +6,8 @@ import json
 import base64
 import hashlib
 import math
+import re
+import zlib
 from copy import deepcopy
 
 from .engine import Game, GOODS, RARE
@@ -14,6 +16,75 @@ from .rigctld import CONTRACT_BANDS
 MAX_FRAME_BYTES = 200
 MAX_MESSAGE_BYTES = 4096
 MAX_PARTS = 64
+BEACON_MAGIC = b"TN"
+BEACON_VERSION = 1
+
+
+def encode_beacon(callsign: str, good: str, abundance: int,
+                  contract: dict | None = None) -> bytes:
+    """Small standalone broadcast: station, resource, abundance, optional offer.
+
+    This is a Trade Net application frame carried by Data2G, NOT a WSPR frame.
+    No credit, contact or delivery is earned merely by sending or hearing it.
+    """
+    if not isinstance(callsign, str):
+        raise ValueError("beacon needs a station callsign")
+    callsign = callsign.upper()
+    if not re.fullmatch(r"[A-Z0-9/-]{3,10}", callsign):
+        raise ValueError("beacon callsign must be 3–10 ASCII characters")
+    if good not in GOODS or type(abundance) is not int or not 0 <= abundance <= 65535:
+        raise ValueError("invalid beacon commodity or abundance")
+    header = (BEACON_VERSION << 4) | len(callsign)
+    raw = bytearray(BEACON_MAGIC + bytes((header,)))
+    raw.extend(callsign.encode("ascii"))
+    raw.extend((GOODS.index(good), min(255, abundance)))
+    if contract is not None:
+        if not isinstance(contract, dict):
+            raise ValueError("invalid advertised contract")
+        contract_id = contract.get("id")
+        if not isinstance(contract_id, str):
+            raise ValueError("invalid advertised contract id")
+        suffix = contract_id.removeprefix(callsign + "-C")
+        quantity = contract.get("quantity")
+        if (not contract_id.startswith(callsign + "-C") or
+                not suffix.isdigit() or not 1 <= int(suffix) <= 65535 or
+                contract.get("good") not in GOODS or type(quantity) is not int or
+                not 1 <= quantity <= 255 or contract.get("status", "open") != "open"):
+            raise ValueError("contract is not a compact local open offer")
+        raw.extend((GOODS.index(contract["good"]), quantity))
+        raw.extend(int(suffix).to_bytes(2, "big"))
+    raw.append(zlib.crc32(raw) & 0xFF)
+    return bytes(raw)
+
+
+def decode_beacon(payload: bytes) -> dict | None:
+    """Strict, checksum-guarded decode of the two supported beacon lengths."""
+    if not isinstance(payload, bytes) or not 9 <= len(payload) <= 21 or payload[:2] != BEACON_MAGIC:
+        return None
+    version, n = payload[2] >> 4, payload[2] & 0x0F
+    if version != BEACON_VERSION or not 3 <= n <= 10 or len(payload) not in (n + 6, n + 10):
+        return None
+    if zlib.crc32(payload[:-1]) & 0xFF != payload[-1]:
+        return None
+    try:
+        callsign = payload[3:3 + n].decode("ascii")
+    except UnicodeDecodeError:
+        return None
+    if not re.fullmatch(r"[A-Z0-9/-]{3,10}", callsign):
+        return None
+    resource_index, abundance = payload[3 + n:5 + n]
+    if resource_index >= len(GOODS):
+        return None
+    contract = None
+    if len(payload) == n + 10:
+        good_index, quantity = payload[5 + n:7 + n]
+        serial = int.from_bytes(payload[7 + n:9 + n], "big")
+        if good_index >= len(GOODS) or not 1 <= quantity <= 255 or not 1 <= serial <= 65535:
+            return None
+        contract = {"id": f"{callsign}-C{serial:04d}", "good": GOODS[good_index],
+                    "quantity": quantity, "status": "advertised"}
+    return {"callsign": callsign, "good": GOODS[resource_index],
+            "abundance": abundance, "contract": contract, "bytes": len(payload)}
 
 
 def encode(message: dict) -> bytes:

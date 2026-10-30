@@ -49,6 +49,25 @@ def outgoing(app, payload, purpose, destination, contract_id=""):
 
 
 class RadioFlowTests(unittest.TestCase):
+    def test_receiving_hub_accepts_real_freight_while_every_ship_is_away(self):
+        sender, receiver = station("W1AAA", 11), station("W2BBB", 22)
+        receiver.game.ship["location"] = "Kepler"
+        receiver.game._bind_ship()
+        self.assertFalse(any(s["location"] == "Haven" for s in receiver.game.fleet.values()))
+        receiver.radio_contacts[sender.callsign] = 1
+        request = next(c for c in receiver.radio_contracts[receiver.callsign]
+                       if c["status"] == "open" and not c.get("requirements"))
+        before_stock = receiver.game.galaxies["home"]["ports"]["Haven"]["stock"][request["good"]]
+        payload = radio_exchange.encode_message({"v": 1, "t": "delivery", "i": "away-delivery",
+            "f": sender.callsign, "d": receiver.callsign,
+            "c": request["id"], "g": request["good"], "q": request["quantity"], "n": []})
+        response = receive(receiver, payload)
+        self.assertIsNotNone(response)
+        self.assertTrue(radio_exchange.decode(response)["ok"])
+        self.assertEqual(receiver.game.galaxies["home"]["ports"]["Haven"]["stock"][request["good"]],
+                         before_stock + request["quantity"])
+        self.assertEqual(receiver.game.ship["location"], "Kepler")
+
     def test_radio_reservation_requires_imported_warehouse_goods(self):
         alice = station('W1AAA', 11)
         alice.radio_contacts['W2BBB'] = 1

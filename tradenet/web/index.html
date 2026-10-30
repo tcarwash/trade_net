@@ -87,8 +87,9 @@ function renderRadioJourney(){
   el('txDestination').textContent=String(destination).toUpperCase();
   if(job.status==='awaiting_ack'){
     el('txJourney').dataset.phase='outbound';el('txRoute').setAttribute('d','M30 40 C190 3 490 69 670 34');motion.setAttribute('repeatCount','indefinite');
-    el('txJourneyLabel').textContent=`${job.purpose==='contact'?'First contact sent':'Contract delivery sent'} · timeout in ${job.remaining_seconds}s`;
-    el('txJourney').setAttribute('aria-label',`Transmission in progress to ${destination}; timeout in ${job.remaining_seconds} seconds`);return;
+    let recovery=job.retry_due_at?`Retrying transmission ${Number(job.auto_retry_count||0)+1} of 2 shortly`:job.auto_retry_count?`Retry ${job.auto_retry_count} sent · awaiting receipt, ${job.remaining_seconds}s left`:`Awaiting receipt · ${job.remaining_seconds}s left`;
+    el('txJourneyLabel').textContent=`${job.purpose==='contact'?'First contact':'Contract delivery'} · ${recovery}`;
+    el('txJourney').setAttribute('aria-label',`Transmission to ${destination}; ${recovery}`);return;
   }
   if(job.status==='delivered'){
     el('txJourney').dataset.phase='delivered';el('txRoute').setAttribute('d','M30 40 C190 3 490 69 670 34');motion.setAttribute('repeatCount','0');
@@ -353,7 +354,8 @@ function renderExchange(){
   for(let c of contracts){let option=document.createElement('option');option.value=c.id;option.textContent=`Deliver ${c.quantity} ${c.good} · ${c.id}`;contractSelect.append(option)}
   if(contracts.some(c=>c.id===oldContract))contractSelect.value=oldContract;
   let inbox=state.radio_inbox||[],listener=state.radio_listener_status||'reconnecting';
-  el('radioInbox').textContent=inbox.length?`Receiver ${listener} · `+inbox.slice(-5).reverse().map(item=>`${item.outcome}: ${item.details?item.details+' · ':''}${item.type} from ${item.from} (${item.bytes} B)`).join(' · '):`Receiver ${listener} · Listening for transmissions and galaxy gossip.`;
+  let queued=state.radio_pending_receipts?` · ${state.radio_pending_receipts} receipt${state.radio_pending_receipts===1?'':'s'} queued`:'';
+  el('radioInbox').textContent=inbox.length?`Receiver ${listener}${queued} · `+inbox.slice(-5).reverse().map(item=>`${item.outcome}: ${item.details?item.details+' · ':''}${item.type} from ${item.from} (${item.bytes} B)`).join(' · '):`Receiver ${listener}${queued} · Listening for transmissions and galaxy gossip.`;
   container.replaceChildren();
   if(!station){container.textContent='Enter a known callsign or try a first-contact expedition to a new station.'}
   else{
@@ -365,7 +367,7 @@ function renderExchange(){
     if(!contracts.length&&contact){let empty=document.createElement('div');empty.className='stat';empty.textContent='No active partner contracts cached. The receiver will send the replacement contract with its delivery receipt.';container.append(empty)}
   }
   let actionJob=[...(state.radio_transmissions||[])].reverse().find(job=>job.destination===station);
-  el('mailStatus').textContent=actionJob?.status==='awaiting_ack'?`Waiting for ${station} · timeout in ${actionJob.remaining_seconds}s.`:actionJob?.status==='failed'?`Transmission timed out · ship was damaged. Requested goods remain staged so you can retry.`:actionJob?.status==='delivered'?`Receiver confirmed ${actionJob.purpose==='contact'?'first contact':'contract fulfillment'}.`:actionJob?.status==='rejected'?`Receiver rejected the delivery. Reserved goods were returned.`:station?(state.radio_contacts?.[station]?'Receiver is listening. Transmit only against an active contract.':'First contact exchanges resource information and contracts both ways.'):'Enter a callsign to try an expedition, or choose a station already heard.';
+  el('mailStatus').textContent=actionJob?.status==='awaiting_ack'?(actionJob.retry_due_at?`Waiting for ${station} · automatic retry scheduled.`:actionJob.auto_retry_count?`Waiting for ${station} · retry ${actionJob.auto_retry_count} sent, ${actionJob.remaining_seconds}s left.`:`Waiting for ${station} · ${actionJob.remaining_seconds}s left.`):actionJob?.status==='failed'?`Transmission timed out after recovery attempts · ship was damaged. Requested goods remain staged so you can retry.`:actionJob?.status==='delivered'?`Receiver confirmed ${actionJob.purpose==='contact'?'first contact':'contract fulfillment'}.`:actionJob?.status==='rejected'?`Receiver rejected the delivery. Reserved goods were returned.`:station?(state.radio_contacts?.[station]?'Receiver is listening. Transmit only against an active contract.':'First contact exchanges resource information and contracts both ways.'):'Enter a callsign to try an expedition, or choose a station already heard.';
   let selected=contracts.find(c=>c.id===contractSelect.value),heard=Object.entries(state.radio_resources||{}).filter(([id,p])=>id!==station&&id!==local&&!p.via).length;
   el('txSummary').textContent=selected&&selected.quantity>=5?`This delivery includes ${Math.min(heard,8)} heard station report${Math.min(heard,8)===1?'':'s'} with second-hop richness, inventory, production and contracts when available.`:selected?'This small delivery carries the contract and a compact station summary.':'Incoming frames are handled automatically, including transmissions meant for other stations.';
   let buttons=[...el('exchangeForm').querySelectorAll('button[name="action"]')];

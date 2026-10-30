@@ -6,6 +6,7 @@ import argparse
 import base64
 import hashlib
 import json
+import logging
 import math
 import socket
 import threading
@@ -24,6 +25,10 @@ from . import radio_exchange
 
 WEB = Path(__file__).with_name("web")
 MODEM_CATALOG = Path(__file__).with_name("modem-modes.json")
+PART_IDLE_SECONDS = 90
+MAX_REPAIR_REQUESTS = 3
+MAX_AUTO_RETRIES = 2
+MAX_REPLY_ATTEMPTS = 5
 
 
 class App:
@@ -39,6 +44,7 @@ class App:
         self.radio_reservations = {}
         self.radio_processed = {}
         self.radio_assemblies = {}
+        self.radio_pending_replies = {}
         try:
             saved_radio = json.loads(self.radio_save.read_text(encoding="utf-8"))
             if isinstance(saved_radio, dict) and "transmissions" in saved_radio:
@@ -50,6 +56,7 @@ class App:
                 self.radio_reservations = saved_radio.get("reservations", {})
                 self.radio_processed = saved_radio.get("processed", {})
                 self.radio_assemblies = saved_radio.get("assemblies", {})
+                self.radio_pending_replies = saved_radio.get("pending_replies", {})
             else:
                 self.radio_transmissions = saved_radio if isinstance(saved_radio, dict) else {}
                 self.radio_inbox = []
@@ -59,6 +66,7 @@ class App:
                 self.radio_reservations = {}
                 self.radio_processed = {}
                 self.radio_assemblies = {}
+                self.radio_pending_replies = {}
         except (OSError, ValueError):
             self.radio_transmissions = {}
             self.radio_inbox = []
@@ -93,6 +101,7 @@ class App:
             self.radio_reservations = self.game.radio_state.get("reservations", self.radio_reservations)
             self.radio_processed = self.game.radio_state.get("processed", self.radio_processed)
             self.radio_assemblies = self.game.radio_state.get("assemblies", self.radio_assemblies)
+            self.radio_pending_replies = self.game.radio_state.get("pending_replies", self.radio_pending_replies)
         for station in list(self.game.galaxies):
             if station != "home" and (station not in self.radio_resources or
                                        self.radio_resources[station].get("via")):
@@ -117,6 +126,9 @@ class App:
         self.radio_listener = threading.Thread(target=self._listen_for_frames,
                                               name="tradenet-radio-listener", daemon=True)
         self.radio_listener.start()
+        self.radio_recovery = threading.Thread(target=self._run_radio_recovery,
+                                               name="tradenet-radio-recovery", daemon=True)
+        self.radio_recovery.start()
 
     def _listen_for_frames(self):
         """Continuously receive group frames; classify addressed traffic and gossip."""
@@ -134,22 +146,7 @@ class App:
                             continue
                         if frame_port != port or command != 0:
                             continue
-                        reply = self._handle_received_frame(payload)
-                        if reply:
-                            # App receipts are the receiver-side authority signal;
-                            # Data2G's local send acceptance is not peer delivery.
-                            try:
-                                tier = int(self.game.ship.get("modem_tier", 0))
-                                choices = [vars(mode) for mode in modem.modes()]
-                                modes = self._eligible_radio_modes(choices)
-                                packet_size = max(map(len, radio_exchange.frames(reply)))
-                                mode = next((item for item in modes
-                                    if item["bytes_per_codeword"] * item["max_codewords"] >= packet_size), None)
-                                if mode:
-                                    self._send_radio_frames(modem, reply, mode["mode_id"], tier)
-                            except (Data2GError, OSError, ValueError):
-                                with self.lock:
-                                    self.radio_listener_status = "reply failed"
+                        self._handle_received_frame(payload)
             except (Data2GError, OSError, ValueError):
                 with self.lock:
                     self.radio_listener_status = "reconnecting"
@@ -171,6 +168,152 @@ class App:
             for packet in packets:
                 modem.send_once(packet, approved=True)
         return packets
+
+    def _send_recovery_payload(self, payload, mode_id=None, indices=None):
+        """Queue a saved message or selected parts without holding the game lock."""
+        host, command_port, kiss_port, group = self.data2g
+        packets = radio_exchange.frames(payload)
+        if indices is not None:
+            packets = [packets[index] for index in indices]
+        with Data2GClient(host, command_port, kiss_port) as modem:
+            modem.open_group(group, self.callsign)
+            available = [vars(mode) for mode in modem.modes()]
+            with self.lock:
+                modes = self._eligible_radio_modes(available)
+                tier = int(self.game.ship.get("modem_tier", 0))
+            needed = max(map(len, packets))
+            mode = next((item for item in modes if item["mode_id"] == mode_id and
+                         item["bytes_per_codeword"] * item["max_codewords"] >= needed), None)
+            if mode is None:
+                mode = next((item for item in modes if
+                             item["bytes_per_codeword"] * item["max_codewords"] >= needed), None)
+            if mode is None:
+                raise Data2GError("no eligible mode can carry the recovery frame")
+            with self.tx_lock:
+                slot = zlib.crc32(self.callsign.encode("ascii")) % 4
+                delay = (slot * 3 - time.time() % 12) % 12
+                if delay > .05:
+                    time.sleep(delay)
+                modem.select_mode(mode["mode_id"], tier)
+                for packet in packets:
+                    modem.send_once(packet, approved=True)
+
+    def _queue_radio_reply(self, reply):
+        if not hasattr(self, "radio_pending_replies"):
+            self.radio_pending_replies = {}
+        key = hashlib.sha256(reply).hexdigest()[:16]
+        prior = self.radio_pending_replies.get(key, {})
+        self.radio_pending_replies[key] = {"payload_hex": reply.hex(),
+            "attempts": prior.get("attempts", 0), "due_at": time.time(),
+            "created_at": prior.get("created_at", time.time())}
+        self.radio_pending_replies = dict(list(self.radio_pending_replies.items())[-100:])
+
+    def _run_radio_recovery(self):
+        while True:
+            try:
+                work = self._next_radio_recovery_work()
+                if work is None:
+                    time.sleep(2)
+                    continue
+                kind, key, payload, mode_id, indices = work
+                try:
+                    self._send_recovery_payload(payload, mode_id, indices)
+                    error = None
+                except (Data2GError, OSError, ValueError, IndexError) as exc:
+                    error = str(exc)
+                with self.lock:
+                    self._finish_radio_recovery_work(kind, key, error, indices)
+            except Exception:
+                logging.exception("radio recovery worker failed")
+                time.sleep(5)
+
+    def _next_radio_recovery_work(self):
+        with self.lock:
+            now = time.time()
+            self._expire_radio_transmissions(now)
+            for key, item in list(self.radio_pending_replies.items()):
+                if item.get("due_at", 0) > now:
+                    continue
+                if item.get("attempts", 0) >= MAX_REPLY_ATTEMPTS:
+                    self.radio_pending_replies.pop(key, None)
+                    self.persist()
+                    continue
+                item["attempts"] = item.get("attempts", 0) + 1
+                item["due_at"] = now + 15 * 2 ** (item["attempts"] - 1)
+                self.persist()
+                return "reply", key, bytes.fromhex(item["payload_hex"]), None, None
+            for key, assembly in list(self.radio_assemblies.items()):
+                if (assembly.get("destination") != self.callsign or
+                        assembly.get("repair_attempts", 0) >= MAX_REPAIR_REQUESTS or
+                        now - assembly.get("updated_at", now) < PART_IDLE_SECONDS or
+                        now < assembly.get("repair_due_at", 0)):
+                    continue
+                count = assembly["count"]
+                missing = sum(1 << i for i in range(count)
+                              if str(i) not in assembly["parts"])
+                if not missing:
+                    continue
+                sender, msg_id = key.split("/", 1)
+                try:
+                    payload = radio_exchange.encode({"v": 1, "t": "repair",
+                        "i": uuid.uuid4().hex[:16], "f": self.callsign,
+                        "d": sender, "r": msg_id, "h": assembly["digest"],
+                        "m": count, "b": f"{missing:0{(count + 3) // 4}x}"})
+                except ValueError:
+                    continue
+                assembly["repair_attempts"] = assembly.get("repair_attempts", 0) + 1
+                assembly["repair_due_at"] = now + PART_IDLE_SECONDS * assembly["repair_attempts"]
+                self.persist()
+                return "repair_request", key, payload, None, None
+            for key, job in self.radio_transmissions.items():
+                if job.get("status") != "awaiting_ack":
+                    continue
+                indices = job.get("repair_indices")
+                if indices and now >= job.get("repair_send_due_at", 0):
+                    if job.get("repair_send_attempts", 0) >= MAX_REPAIR_REQUESTS:
+                        job.pop("repair_indices", None)
+                        self.persist()
+                        continue
+                    job.pop("repair_indices", None)
+                    job["repair_send_attempts"] = job.get("repair_send_attempts", 0) + 1
+                    payload = bytes.fromhex(job["payload_hex"])
+                    self.persist()
+                    return "repair_parts", key, payload, job.get("mode_id"), indices
+                if job.get("retry_due_at", now + 1) <= now and job.get("payload_hex"):
+                    job.pop("retry_due_at", None)
+                    job["auto_retry_count"] = job.get("auto_retry_count", 0) + 1
+                    job["timeout_at"] = now + job.get("timeout_seconds", 180) + 20
+                    self.persist()
+                    return "retry", key, bytes.fromhex(job["payload_hex"]), job.get("mode_id"), None
+        return None
+
+    def _finish_radio_recovery_work(self, kind, key, error, indices):
+        now = time.time()
+        if kind == "reply":
+            item = self.radio_pending_replies.get(key)
+            if item:
+                if error is None or item["attempts"] >= MAX_REPLY_ATTEMPTS:
+                    self.radio_pending_replies.pop(key, None)
+        elif kind == "repair_request":
+            assembly = self.radio_assemblies.get(key)
+            if assembly and error:
+                assembly["repair_due_at"] = now + 30 * assembly["repair_attempts"]
+        else:
+            job = self.radio_transmissions.get(key)
+            if job and job.get("status") == "awaiting_ack":
+                if kind == "repair_parts" and error:
+                    job["repair_indices"] = sorted(set(indices or []) |
+                                                   set(job.get("repair_indices", [])))
+                    job["repair_send_due_at"] = now + 30 * job["repair_send_attempts"]
+                elif kind == "repair_parts":
+                    job["repair_send_attempts"] = 0
+                if kind == "retry" and error:
+                    job["timeout_at"] = now + 30
+                if error:
+                    job["recovery_error"] = error
+                else:
+                    job.pop("recovery_error", None)
+        self.persist()
 
     def _ensure_radio_contracts(self):
         contracts, serial = radio_exchange.generate_contracts(
@@ -223,9 +366,45 @@ class App:
         frame = radio_exchange.decode(payload)
         if not frame:
             return None
+        if frame.get("t") == "repair":
+            self._handle_repair_request(frame)
+            return None
         if frame.get("t") == "part":
             return self._receive_part(frame)
         return self._handle_radio_message(payload)
+
+    def _handle_repair_request(self, frame):
+        """Accept a bounded missing-part request only from the intended peer."""
+        sender, msg_id, digest = frame.get("f"), frame.get("r"), frame.get("h")
+        if (frame.get("d") != self.callsign or not self._valid_station(sender) or
+                not isinstance(msg_id, str) or not 1 <= len(msg_id) <= 32 or
+                not isinstance(digest, str) or len(digest) != 16):
+            return
+        with self.lock:
+            job = next((item for item in self.radio_transmissions.values()
+                        if item.get("message_id") == msg_id and
+                           item.get("destination") == sender and
+                           item.get("payload_hash") == digest and
+                           item.get("status") == "awaiting_ack" and
+                           item.get("payload_hex")), None)
+            if job is None:
+                return
+            if job.get("repair_requests_seen", 0) >= MAX_REPAIR_REQUESTS:
+                return
+            count = len(radio_exchange.frames(bytes.fromhex(job["payload_hex"])))
+            bitmap = frame.get("b")
+            if (frame.get("m") != count or count <= 1 or
+                    not isinstance(bitmap, str) or len(bitmap) != (count + 3) // 4 or
+                    any(c not in "0123456789abcdef" for c in bitmap)):
+                return
+            bits = int(bitmap, 16)
+            if not bits or bits >> count:
+                return
+            requested = [index for index in range(count) if bits & (1 << index)]
+            job["repair_requests_seen"] = job.get("repair_requests_seen", 0) + 1
+            job["repair_indices"] = sorted(set(job.get("repair_indices", [])) |
+                                           set(requested))
+            self.persist()
 
     def _receive_part(self, frame):
         sender, destination, msg_id = (frame.get(key) for key in ("f", "d", "i"))
@@ -251,7 +430,10 @@ class App:
             if done:
                 if (index == count - 1 and done.get("digest") == digest and
                         done.get("reply_hex")):
-                    return bytes.fromhex(done["reply_hex"])
+                    reply = bytes.fromhex(done["reply_hex"])
+                    self._queue_radio_reply(reply)
+                    self.persist()
+                    return reply
                 return None
             now = time.time()
             self.radio_assemblies = {k: v for k, v in self.radio_assemblies.items()
@@ -313,7 +495,12 @@ class App:
             if processed:
                 if processed.get("digest") != digest:
                     return None
-                return bytes.fromhex(processed["reply_hex"]) if processed.get("reply_hex") else None
+                if processed.get("reply_hex"):
+                    reply = bytes.fromhex(processed["reply_hex"])
+                    self._queue_radio_reply(reply)
+                    self.persist()
+                    return reply
+                return None
             addressed = destination in ("*", self.callsign)
             neighbors = envelope.get("n", [])
             if not isinstance(neighbors, list):
@@ -429,6 +616,8 @@ class App:
             self.radio_processed[ledger_id] = {"digest": digest,
                 "reply_hex": reply.hex() if reply else "", "kind": kind}
             self.radio_processed = dict(list(self.radio_processed.items())[-500:])
+            if reply:
+                self._queue_radio_reply(reply)
             self.persist()
             return reply
 
@@ -552,22 +741,21 @@ class App:
         return results
 
     def persist(self):
-        self.game.radio_state = {"transmissions": self.radio_transmissions,
+        radio_state = {"transmissions": self.radio_transmissions,
             "inbox": self.radio_inbox, "contacts": self.radio_contacts,
             "contracts": self.radio_contracts, "resources": self.radio_resources,
             "reservations": self.radio_reservations, "processed": self.radio_processed,
             "assemblies": self.radio_assemblies}
+        if self.radio_pending_replies:
+            radio_state["pending_replies"] = self.radio_pending_replies
+        self.game.radio_state = radio_state
         self.game.save(self.save)
         temporary = self.net_save.with_suffix(self.net_save.suffix + ".tmp")
         temporary.write_text(json.dumps(self.net.to_dict(), indent=2) + "\n")
         temporary.replace(self.net_save)
 
         temporary_radio = self.radio_save.with_suffix(self.radio_save.suffix + ".tmp")
-        temporary_radio.write_text(json.dumps({"transmissions": self.radio_transmissions,
-            "inbox": self.radio_inbox, "contacts": self.radio_contacts,
-            "contracts": self.radio_contracts, "resources": self.radio_resources,
-            "reservations": self.radio_reservations, "processed": self.radio_processed,
-            "assemblies": self.radio_assemblies}, indent=2) + "\n")
+        temporary_radio.write_text(json.dumps(radio_state, indent=2) + "\n")
         temporary_radio.replace(self.radio_save)
 
     def _expire_radio_transmissions(self, now=None):
@@ -575,6 +763,16 @@ class App:
         changed = False
         for job in self.radio_transmissions.values():
             if job.get("status") != "awaiting_ack" or now < job.get("timeout_at", now):
+                continue
+            if job.get("retry_due_at"):
+                continue
+            if (job.get("payload_hex") and
+                    job.get("auto_retry_count", 0) < MAX_AUTO_RETRIES):
+                delay = 15 * (job.get("auto_retry_count", 0) + 1)
+                job["retry_due_at"] = now + delay
+                job["timeout_at"] = now + delay + job.get("timeout_seconds", 180)
+                job["recovery_error"] = "Waiting for a receipt; retransmission scheduled."
+                changed = True
                 continue
             job["status"] = "failed"
             job["failed_at"] = now
@@ -596,7 +794,8 @@ class App:
                 "navigation": self._navigation(),
                 "ship_classes": deepcopy(list(getattr(modems, "SHIPS", ()))),
                 "modem_catalog": deepcopy(self.modem_catalog),
-                "radio_transmissions": [{**deepcopy(job),
+                "radio_transmissions": [{**{key: deepcopy(value) for key, value in job.items()
+                                            if key not in ("payload_hex", "repair_indices")},
                     "remaining_seconds": max(0, math.ceil(job["timeout_at"] - time.time()))
                     if job.get("status") == "awaiting_ack" else 0}
                     for job in self.radio_transmissions.values()],
@@ -606,6 +805,7 @@ class App:
                 "radio_resources": deepcopy(self.radio_resources),
                 "radio_reservations": deepcopy(self.radio_reservations),
                 "radio_listener_status": self.radio_listener_status,
+                "radio_pending_receipts": len(self.radio_pending_replies),
                 "clock": {"epoch": self.game.clock_epoch,
                           "tick_seconds": self.game.tick_seconds,
                           "next_boundary_utc": (self.game.clock_epoch + 1) * self.game.tick_seconds},
@@ -709,6 +909,7 @@ class App:
                 ship["radio_mission"] = job_id
                 job = {"id": job_id, "message_id": message["i"], "contract_id": contract_id,
                        "payload_hash": hashlib.sha256(payload).hexdigest()[:16], "purpose": purpose,
+                       "payload_hex": payload.hex(), "auto_retry_count": 0,
                        "mode_id": mode_id, "ship_id": ship["id"],
                        "origin": ship["location"],
                        "destination": station,

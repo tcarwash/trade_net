@@ -12,7 +12,11 @@ message may contain up to 4096 bytes and is split into at most 64 bounded
 ID, part index/count, and the complete message hash. The receiver stores
 partial messages, rejects conflicting parts, checks the complete hash, then
 applies the message once. Incomplete messages do not change inventory or
-credits. Every complete message has `v:1`,
+credits. After 90 seconds without another part, the receiver can send up to
+three bounded `repair` requests naming the missing part indices as a bitmap.
+The sender checks the original message ID, hash, destination and part count
+against its saved transmission before resending only those parts. Every
+complete message has `v:1`,
 a unique message id `i`, sender `f`, and destination `d`. `contact` sends the
 sender's resource profile, open contracts, and optional neighbor summaries.
 The receiver credits its station once, applies the sender's information, and
@@ -32,10 +36,13 @@ The sender only forwards reports it actually received, with observation time
 and reporting station retained in the receiver's cache.
 
 Credit awards are based on the bytes received, capped at 25 credits per frame.
-Receipts carry the reward for their reply bytes. The sender retains staged
-goods after timeout so it can retry the same message id; a confirmed rejection
-returns those goods. The local ship is damaged on timeout, and the receiver
-does not require a delivery setup action.
+Receipts carry the reward for their reply bytes. The receiver persists pending
+receipts before sending and retries modem submission with bounded backoff. If
+the application receipt is lost, the sender retries the exact saved message
+up to two times after its response deadline; duplicate processing returns the
+original receipt without paying twice. A final timeout damages the local ship.
+Staged goods remain reserved for a later manual retry, while a confirmed
+rejection returns them. The receiver does not require a delivery setup action.
 
 Radio sends use four callsign-offset send windows in a repeating 12-second UTC
 period, with one local transmitter lock for manual sends and automatic replies.

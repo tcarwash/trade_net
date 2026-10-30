@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .engine import Game, GameError, GOODS
 from .network import Network
-from .contracts import seed_offers, dispatch
+from .contracts import seed_offers, dispatch, manifest_payload
 from .federation import Federation
 from .mail import MailNetwork
 
@@ -41,6 +41,8 @@ class App:
                                     2, 220, payload_bytes=1024)
         self.lock = threading.RLock()
         seed_offers(self.game)
+        for contract in self.game.contracts.values():
+            contract["payload_bytes"] = len(manifest_payload(contract))
         self.persist()
 
     def persist(self):

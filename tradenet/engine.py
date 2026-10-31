@@ -36,6 +36,24 @@ PORT_NAMES = ("Haven", "Kepler", "Vesper", "Prospect", "Meridian",
 PORT_ROLES = ("Home hub", "Refinery", "Research enclave", "Mining colony",
               "Trade exchange", "Industrial furnace", "Medical sanctuary",
               "Salvage outpost", "Fortress station", "Frontier observatory")
+PORT_TYPES = ("planet", "station", "planet", "planet", "station",
+              "planet", "planet", "station", "station", "station")
+SHIPYARD_PORTS = {"Haven", "Kepler", "Meridian", "Bastion"}
+
+
+def port_profile(name: str, role: str, index: int = 0) -> dict:
+    """Return stable entity/service metadata for a port, including old saves."""
+    entity_type = "station" if "station" in role.lower() or name in SHIPYARD_PORTS and name != "Haven" else "planet"
+    if name in PORT_NAMES:
+        entity_type = PORT_TYPES[PORT_NAMES.index(name)]
+    services = ["market", "refuel", "repair", "crew", "exploration"]
+    if name in SHIPYARD_PORTS:
+        services.append("shipyard")
+    # Stations handle interstellar trade efficiently; planetary markets have
+    # lower fees for locally produced goods.
+    return {"entity_type": entity_type, "services": services,
+            "market_modifier": 105 if entity_type == "station" else 95,
+            "shipyard_modifier": 110 if entity_type == "station" else 100}
 EQUIPMENT = {"scanner": 220, "shield": 350, "navigator": 420, "defense": 380,
              "weapons": 650}
 EQUIPMENT_CARGO_SPACE = {"weapons": 4}
@@ -368,7 +386,13 @@ class Game:
                 for port in missing:
                     self.galaxies["home"]["ports"][port] = deepcopy(expanded.ports[port])
             for i, port in enumerate(PORT_NAMES):
-                self.galaxies["home"]["ports"][port].setdefault("role", PORT_ROLES[i])
+                record = self.galaxies["home"]["ports"][port]
+                record.setdefault("role", PORT_ROLES[i])
+                for key, value in port_profile(port, record["role"], i).items():
+                    record.setdefault(key, value)
+            for name, record in self.galaxies["home"]["ports"].items():
+                for key, value in port_profile(name, record.get("role", "Settlement")).items():
+                    record.setdefault(key, value)
         self._initialize_starport_graph()
         # Migrate version-one single-ship saves without changing their schema.
         if not self.fleet and self.active_ship_id:
@@ -1073,7 +1097,8 @@ class Game:
         while sum(j["status"] == "open" for j in self.vip_jobs.values()) < 2:
             n = self.next_vip_number
             self.next_vip_number += 1
-            ports = list(self.ports)
+            ports = [port for port, record in self.ports.items()
+                     if record.get("entity_type") != "carrier"]
             if len(ports) < 2:
                 break
             origin = ports[(n * 3) % len(ports)]
@@ -1123,6 +1148,7 @@ class Game:
 
     def _buy_equipment(self, item: str) -> dict:
         self._available()
+        self._require_service("shipyard")
         if item not in EQUIPMENT:
             raise GameError("unknown ship equipment")
         if item != "weapons" and item in self.ship.setdefault("equipment", []):
@@ -1226,6 +1252,8 @@ class Game:
                 if crew.get("ship_id") == collateral_id:
                     crew.update(ship_id=None, location=collateral.get("location", "Haven"),
                                 galaxy=collateral.get("galaxy", "home"))
+            if collateral.get("class_id") == "carrier":
+                self._remove_carrier_node(collateral_id, collateral.get("galaxy", "home"))
             self.fleet.pop(collateral_id, None)
         forgiven = max(0, debt - sale_value)
         recovered = min(debt, sale_value)
@@ -1257,6 +1285,7 @@ class Game:
 
     def _sell_equipment(self, item: str) -> dict:
         self._available(maintenance=True)
+        self._require_service("shipyard")
         if item not in EQUIPMENT or item not in self.ship.get("equipment", []):
             raise GameError("this ship does not have that equipment installed")
         self.ship["equipment"].remove(item)
@@ -1285,6 +1314,14 @@ class Game:
         else:
             hull_cost = (350, 900, 1800)[min(2, ship.get("modem_tier", 0))]
         payout = max(1, hull_cost // 2)
+        if class_id == "carrier":
+            node_id = "carrier:" + ship_id
+            node = self.galaxies.get(ship.get("galaxy", "home"), {}).get("ports", {}).get(node_id)
+            if node and any(other_id != ship_id and other.get("location") == node_id
+                            and other.get("galaxy", "home") == ship.get("galaxy", "home")
+                            for other_id, other in self.fleet.items()):
+                raise GameError("move all other ships away from the carrier before selling it")
+            self._remove_carrier_node(ship_id, ship.get("galaxy", "home"))
         self.credits += payout
         del self.fleet[ship_id]
         return {"ship_id": ship_id, "name": ship.get("name", "Ship"), "credits": payout}
@@ -1333,6 +1370,12 @@ class Game:
         """Deterministic, previewable risk for charted corridors and direct courses."""
         if origin not in self.ports or destination not in self.ports:
             raise GameError("invalid route")
+        route = self.route_status(origin, destination)
+        carrier_route = any(self.ports.get(node, {}).get("entity_type") == "carrier"
+                            for node in route.get("path", ()))
+        if carrier_route:
+            return {"kind": "clear", "label": "Carrier-protected corridor",
+                    "damage": 0, "carrier_route": True}
         a, b = sorted((list(self.ports).index(origin), list(self.ports).index(destination)))
         distance = abs(self.ports[origin]["distance"] - self.ports[destination]["distance"])
         direct = not self.route_connected(origin, destination)
@@ -1345,7 +1388,7 @@ class Game:
         pirates_possible = strength is None
         strength = 6 + min(4, distance // 2)
         if direct:
-            if pirates_possible and signature in (0, 2, 4, 6):
+            if pirates_possible and signature in (0, 1, 2, 4, 6, 8):
                 return {"kind": "pirates", "label": "Pirate interception",
                         "damage": 3 + distance // 3, "strength": strength}
             if distance >= 3 and signature in (1, 3, 5, 7):
@@ -1376,7 +1419,21 @@ class Game:
         return self.ports[destination].get("map_parent")
 
     def route_connected(self, origin: str, destination: str) -> bool:
-        return self.route_parent(destination) == origin or self.route_parent(origin) == destination
+        if self.route_parent(destination) == origin or self.route_parent(origin) == destination:
+            return True
+        return destination in self._route_neighbors(origin)
+
+    def _route_neighbors(self, port: str) -> set[str]:
+        if port not in self.ports:
+            return set()
+        record = self.ports[port]
+        result = set(record.get("map_neighbors", ()))
+        parent = record.get("map_parent")
+        if parent:
+            result.add(parent)
+        result.update(name for name, candidate in self.ports.items()
+                      if candidate.get("map_parent") == port)
+        return {name for name in result if name in self.ports}
 
     def asteroid_field_blocks(self, origin: str, destination: str) -> bool:
         """Whether a trip's charted path crosses the currently blocked Haven edge."""
@@ -1393,30 +1450,29 @@ class Game:
         if origin not in self.ports or destination not in self.ports:
             return {"reachable": False, "open": False, "path": [],
                     "reason": "No charted path connects these starports."}
-        def ancestors(port):
-            chain = []
-            seen = set()
-            while port and port in self.ports and port not in seen:
-                seen.add(port)
-                chain.append(port)
-                port = self.route_parent(port)
-            return chain
-        origin_chain, destination_chain = ancestors(origin), ancestors(destination)
-        common = next((port for port in origin_chain if port in destination_chain), None)
-        if common is None:
+        frontier = [origin]
+        previous = {origin: None}
+        order = {name: index for index, name in enumerate(self.ports)}
+        while frontier and destination not in previous:
+            current = frontier.pop(0)
+            for node in sorted(self._route_neighbors(current), key=lambda name: (
+                    self.ports[name].get("entity_type") != "carrier", order[name])):
+                if node not in previous:
+                    previous[node] = current
+                    frontier.append(node)
+        if destination not in previous:
             return {"reachable": False, "open": False, "path": [],
                     "reason": "No charted path connects these starports."}
-        path = origin_chain[:origin_chain.index(common) + 1]
-        path.extend(reversed(destination_chain[:destination_chain.index(common)]))
+        path = []
+        current = destination
+        while current is not None:
+            path.append(current)
+            current = previous[current]
+        path.reverse()
         for first, second in zip(path, path[1:]):
-            if self.route_parent(second) == first:
-                child = second
-            elif self.route_parent(first) == second:
-                child = first
-            else:
-                return {"reachable": False, "open": False, "path": path,
-                        "reason": "No charted corridor connects these starports."}
-            gate = self.ports[child].get("map_gate") or {}
+            child = second if self.route_parent(second) == first else first if self.route_parent(first) == second else None
+            gate = self.ports[child].get("map_gate") if child else None
+            gate = gate or {}
             if not gate or gate.get("unlocked"):
                 continue
             kind = gate.get("kind")
@@ -1485,7 +1541,8 @@ class Game:
         if not parent:
             return 0
         children = [node for node in parent.get("map_neighbors", [])
-                    if node != parent.get("map_parent")]
+                    if node != parent.get("map_parent") and
+                    ports.get(node, {}).get("entity_type") != "carrier"]
         if children:
             return 0
         rng = random.Random(self.seed * 1_000_003 + len(ports) * 97)
@@ -1524,9 +1581,17 @@ class Game:
                 stock[signature] = rng.randint(12, 30)
                 production[signature] = rng.randint(1, 3)
                 consumption[signature] = 0
+            role = rng.choice(roles)
+            entity_type = "station" if "station" in role.lower() or "habitat" in role.lower() or "waypoint" in role.lower() else "planet"
+            services = ["market", "refuel", "repair", "exploration"]
+            if entity_type == "station" and rng.random() < .48:
+                services.append("shipyard")
             child = {"stock": stock, "production": production,
                 "consumption": consumption, "distance": int(parent.get("distance", 0)) + 2,
-                "role": rng.choice(roles), "map_parent": discovered,
+                "role": role, "entity_type": entity_type, "services": services,
+                "market_modifier": 105 if entity_type == "station" else 95,
+                "shipyard_modifier": 110 if entity_type == "station" else 100,
+                "map_parent": discovered,
                 "map_depth": parent_depth + 1, "map_angle": parent_angle + offset,
                 "map_neighbors": [discovered]}
             if child_number == gate_child and gate_kind == "reputation":
@@ -1593,7 +1658,8 @@ class Game:
                 del self.local_jobs[key]
         open_jobs = sum(job["status"] == "open" and job.get("kind") not in ("rival", "followup", "frontier_gate")
                         for job in self.local_jobs.values())
-        ports = list(self.ports)
+        ports = [port for port, record in self.ports.items()
+                 if record.get("entity_type") != "carrier"]
         while open_jobs < 3 and ports:
             number = self.next_job_number
             self.next_job_number += 1
@@ -1670,6 +1736,22 @@ class Game:
         self.specialization = galaxy["specialization"]
         self.ports = galaxy["ports"]
 
+    def _remove_carrier_node(self, ship_id: str, galaxy_id: str = "home") -> None:
+        ports = self.galaxies.get(galaxy_id, {}).get("ports", {})
+        node_id = "carrier:" + ship_id
+        node = ports.get(node_id)
+        if not node:
+            return
+        fallback = next((port for port in node.get("linked_planets", []) if port in ports), "Haven")
+        for planet in node.get("linked_planets", []):
+            neighbors = ports.get(planet, {}).get("map_neighbors", [])
+            if node_id in neighbors:
+                neighbors.remove(node_id)
+        for other_id, other in self.fleet.items():
+            if other_id != ship_id and other.get("location") == node_id and other.get("galaxy", "home") == galaxy_id:
+                other["location"] = fallback
+        ports.pop(node_id, None)
+
     def _all_arrivals(self):
         for ship in self.fleet.values():
             if ship.get("destination") is not None:
@@ -1677,7 +1759,9 @@ class Game:
                 arrived = (time.time() >= arrival_at if arrival_at is not None else
                            self.tick >= (ship.get("arrival_tick") or self.tick + 1))
                 if arrived:
-                    first_visit = ship.get("galaxy", "home") == "home" and ship["destination"] not in self.visited_ports
+                    is_carrier_node = self.ports.get(ship["destination"], {}).get("entity_type") == "carrier"
+                    first_visit = (ship.get("galaxy", "home") == "home" and not is_carrier_node and
+                                   ship["destination"] not in self.visited_ports)
                     ship["location"] = ship.pop("destination")
                     ship["destination"] = None
                     ship["arrival_tick"] = None
@@ -1685,7 +1769,8 @@ class Game:
                     ship.pop("departed_at", None)
                     ship.pop("travel_seconds", None)
                     ship.pop("origin_port", None)
-                    if ship.get("galaxy", "home") == "home" and self._reveal_encounter(ship["location"]):
+                    if (ship.get("galaxy", "home") == "home" and not is_carrier_node and
+                            self._reveal_encounter(ship["location"])):
                         encounter = self.encounters[ship["location"]]
                         self.journal.append({"id": "site-" + ship["location"],
                             "tick": self.tick, "action": "discover_site",
@@ -1747,7 +1832,7 @@ class Game:
         if port is None and self.ship.get("galaxy", "home") != "home":
             return []
         port = self.location if port is None else port
-        if port not in self.ports:
+        if port not in self.ports or "crew" not in self.ports[port].get("services", ["crew"]):
             return []
         index, cycle = list(self.ports).index(port), self.tick // 144
         roles = tuple(CREW_ROLES)
@@ -1771,6 +1856,7 @@ class Game:
 
     def _hire_crew(self, candidate_id: str) -> dict:
         self._available()
+        self._require_service("crew")
         person = next((candidate for candidate in self.crew_candidates()
                        if candidate["id"] == candidate_id), None)
         if not person:
@@ -1909,6 +1995,10 @@ class Game:
         if not 2 <= len(name) <= 28 or not name.isprintable():
             raise GameError("ship name must be 2–28 printable characters")
         self.fleet[ship_id]["name"] = name
+        if self.fleet[ship_id].get("class_id") == "carrier":
+            node = self.galaxies.get(self.fleet[ship_id].get("galaxy", "home"), {}).get("ports", {}).get("carrier:" + ship_id)
+            if node:
+                node["name"] = name
         return {"ship_id": ship_id, "name": name}
 
     def _transfer_cargo(self, source_id: str, destination_id: str, good: str, amount: int) -> dict:
@@ -1931,6 +2021,135 @@ class Game:
         target.setdefault("export_cargo", {})[good] = target.get("export_cargo", {}).get(good, 0) + eligible
         return {"source_id": source_id, "destination_id": destination_id,
                 "good": good, "amount": amount, "imported": eligible}
+
+    @staticmethod
+    def _segments_intersect(a, b, c, d, allowed_endpoint=None) -> bool:
+        """Detect crossings, touches, and overlaps; allow only one shared planet endpoint."""
+        epsilon = 1e-7
+        def cross(p, q, r):
+            return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+        def on_segment(p, q, r):
+            return (min(p[0], q[0]) - epsilon <= r[0] <= max(p[0], q[0]) + epsilon and
+                    min(p[1], q[1]) - epsilon <= r[1] <= max(p[1], q[1]) + epsilon and
+                    abs(cross(p, q, r)) <= epsilon)
+        o1, o2, o3, o4 = cross(a, b, c), cross(a, b, d), cross(c, d, a), cross(c, d, b)
+        proper = ((o1 > epsilon and o2 < -epsilon or o1 < -epsilon and o2 > epsilon) and
+                  (o3 > epsilon and o4 < -epsilon or o3 < -epsilon and o4 > epsilon))
+        points = []
+        for point, first, second in ((a, c, d), (b, c, d), (c, a, b), (d, a, b)):
+            if on_segment(first, second, point) and not any(
+                    math.hypot(point[0] - prior[0], point[1] - prior[1]) <= epsilon
+                    for prior in points):
+                points.append(point)
+        if not proper and not points:
+            return False
+        if allowed_endpoint is not None and points and all(
+                math.hypot(point[0] - allowed_endpoint[0], point[1] - allowed_endpoint[1]) <= epsilon
+                for point in points):
+            return False
+        return True
+
+    def _deploy_carrier(self, x: float, y: float, link_a: str, link_b: str,
+                        corridors: list, link_positions: dict) -> dict:
+        self._available()
+        if self.ship.get("class_id") != "carrier":
+            raise GameError("select a Carrier to place or relocate it")
+        if self.ship.get("galaxy", "home") != "home":
+            raise GameError("carriers can only be placed in their home galaxy")
+        if (type(x) not in (int, float) or type(y) not in (int, float) or
+                not 0 <= x <= 10000 or not 0 <= y <= 10000):
+            raise GameError("choose a valid position on the star map")
+        if link_a == link_b or link_a not in self.ports or link_b not in self.ports:
+            raise GameError("choose two different planetary links")
+        if any(self.ports[port].get("entity_type") != "planet" for port in (link_a, link_b)):
+            raise GameError("carrier routes must connect to two planets")
+        if any(port not in self.visited_ports for port in (link_a, link_b)):
+            raise GameError("carrier routes can only be anchored to surveyed planets")
+        if self.route_connected(link_a, link_b):
+            raise GameError("choose planets that do not already share a direct corridor")
+        node_id = "carrier:" + self.active_ship_id
+        previous = self.ports.get(node_id)
+        if not isinstance(corridors, list) or len(corridors) > 4096 or not isinstance(link_positions, dict):
+            raise GameError("carrier placement needs the current star-map corridor layout")
+        expected_corridors = sum(bool(record.get("map_parent")) and record.get("entity_type") != "carrier"
+                                 for record in self.ports.values())
+        expected_corridors += sum(len(record.get("linked_planets", [])) for port, record in self.ports.items()
+                                  if record.get("entity_type") == "carrier" and port != node_id)
+        if len(corridors) != expected_corridors:
+            raise GameError("the star map changed; reopen carrier placement and choose a position again")
+        parsed = []
+        for line in corridors:
+            if not isinstance(line, dict):
+                raise GameError("invalid map corridor data")
+            try:
+                coords = tuple(float(line[key]) for key in ("x1", "y1", "x2", "y2"))
+            except (KeyError, TypeError, ValueError, OverflowError):
+                raise GameError("invalid map corridor data") from None
+            if not all(math.isfinite(value) and abs(value) <= 10000 for value in coords):
+                raise GameError("invalid map corridor coordinates")
+            parsed.append((coords[:2], coords[2:], line.get("carrier")))
+        anchors = {}
+        for port in (link_a, link_b):
+            point = link_positions.get(port)
+            if not isinstance(point, dict):
+                raise GameError("select both planet endpoints from the current star map")
+            try:
+                position = (float(point["x"]), float(point["y"]))
+            except (KeyError, TypeError, ValueError, OverflowError):
+                raise GameError("invalid planetary endpoint position") from None
+            if not all(math.isfinite(value) and abs(value) <= 10000 for value in position):
+                raise GameError("invalid planetary endpoint coordinates")
+            if not any(math.hypot(position[0] - endpoint[0], position[1] - endpoint[1]) < .05
+                       for first, second, _ in parsed for endpoint in (first, second)):
+                raise GameError("planet endpoints do not match the current star map")
+            anchors[port] = position
+        proposed = ((x, y), anchors[link_a], link_a), ((x, y), anchors[link_b], link_b)
+        if self._segments_intersect(proposed[0][0], proposed[0][1],
+                                    proposed[1][0], proposed[1][1], (x, y)):
+            raise GameError("the two carrier corridors cannot overlap")
+        for start, end, anchor_name in proposed:
+            for first, second, carrier in parsed:
+                if carrier == node_id:
+                    continue
+                if self._segments_intersect(start, end, first, second, anchors[anchor_name]):
+                    raise GameError("safe carrier corridors cannot cross existing corridors; choose another position or planet pair")
+        if previous:
+            distance = math.hypot(x - previous.get("map_x", x), y - previous.get("map_y", y))
+            fuel_cost = 20 + math.ceil(distance / 60) * 5
+        else:
+            fuel_cost = 25
+        propellant = self.ship.setdefault("cargo", {}).get("fuel", 0)
+        if propellant < fuel_cost:
+            raise GameError(f"Carrier relocation needs {fuel_cost} bulk propellant in its hold; {propellant} aboard")
+        self.ship["cargo"]["fuel"] -= fuel_cost
+        export = self.ship.setdefault("export_cargo", {})
+        export["fuel"] = max(0, export.get("fuel", 0) - fuel_cost)
+        neighbors = [link_a, link_b]
+        record = previous or {"stock": {good: 0 for good in GOODS},
+            "production": {good: 0 for good in GOODS},
+            "consumption": {good: 0 for good in GOODS},
+            "distance": (self.ports[link_a]["distance"] + self.ports[link_b]["distance"]) // 2,
+            "map_depth": 0, "map_parent": None, "entity_type": "carrier",
+            "services": ["repair"], "market_modifier": 100, "shipyard_modifier": 100}
+        for neighbor in record.get("map_neighbors", []):
+            if neighbor in self.ports:
+                linked = self.ports[neighbor].setdefault("map_neighbors", [])
+                if node_id in linked:
+                    linked.remove(node_id)
+        for neighbor in neighbors:
+            linked = self.ports[neighbor].setdefault("map_neighbors", [])
+            if node_id not in linked:
+                linked.append(node_id)
+        record.update(name=self.ship["name"], entity_type="carrier", map_x=float(x),
+            map_y=float(y), map_neighbors=neighbors, map_parent=None,
+            linked_planets=neighbors, role="Mobile carrier", distance=(
+                self.ports[link_a]["distance"] + self.ports[link_b]["distance"]) // 2)
+        self.ports[node_id] = record
+        self.ship["location"] = node_id
+        self.location = node_id
+        return {"ship_id": self.active_ship_id, "node": node_id,
+                "links": neighbors, "propellant_spent": fuel_cost,
+                "map_x": x, "map_y": y}
 
     def _route_event(self, ship: dict, action: str, **details) -> None:
         route = ship["auto_route"]
@@ -2169,6 +2388,8 @@ class Game:
                           good: str, quantity: int, max_runs: int = 3,
                           kind: str = "trade", standing_target: str = "") -> dict:
         ship = self._docked_ship(ship_id)
+        if ship.get("class_id") == "carrier":
+            raise GameError("carriers reposition manually and cannot fly trade autopilot routes")
         if (origin not in self.galaxies["home"]["ports"] or
                 destination not in self.galaxies["home"]["ports"] or origin == destination or
                 good not in GOODS or type(quantity) is not int or quantity < 1 or
@@ -2267,6 +2488,10 @@ class Game:
         return {"crew_id": crew["id"], "level": crew["level"], "xp": crew["xp"]}
 
     def _purchase_ship(self, tier: int = 0, class_id: str | None = None) -> dict:
+        self._available()
+        self._require_service("shipyard")
+        if self.ship.get("class_id") == "carrier":
+            raise GameError("commission new hulls from a non-carrier vessel")
         hull = None
         if class_id is not None:
             from .modems import SHIPS
@@ -2279,7 +2504,8 @@ class Game:
         base_cost = hull["cost"] if hull else (350, 900, 1800)[tier]
         discount = (10 * self.haven_facilities.get("shipyard", 0)
                     if self.location == "Haven" and self.ship.get("galaxy", "home") == "home" else 0)
-        cost = max(1, base_cost * (100 - discount) // 100)
+        local_modifier = self.ports[self.location].get("shipyard_modifier", 100)
+        cost = max(1, base_cost * (100 - discount) * local_modifier // 10000)
         if self.credits < cost:
             raise GameError("insufficient credits for ship")
         self.credits -= cost
@@ -2302,6 +2528,9 @@ class Game:
             self.fleet[ship_id].update({key: hull[key] for key in
                 ("name", "capacity", "speed", "frames_per_tick", "max_bandwidth_hz", "sprite", "description")})
             self.fleet[ship_id]["class_id"] = hull["id"]
+            if hull.get("entity_type") == "carrier":
+                self.fleet[ship_id].update(entity_type="carrier", fuel=0, max_fuel=0,
+                    carrier_propellant_capacity=500)
         if not self.active_ship_id:
             self.active_ship_id = ship_id
             self._bind_ship()
@@ -2374,7 +2603,7 @@ class Game:
             ports[port] = {"stock": stock, "production": production,
                            "consumption": consumption,
                            "distance": abs(i - 0) * 2 + (1 if i else 0),
-                           "role": PORT_ROLES[i]}
+                           "role": PORT_ROLES[i], **port_profile(port, PORT_ROLES[i], i)}
         return cls(seed=seed, name=name, specialization=specialty, ports=ports,
                    cargo={g: 0 for g in GOODS},
                    ship={"name": "Wayfarer", "capacity": 30, "fuel": 40,
@@ -2405,6 +2634,7 @@ class Game:
         if any(event["port"] == port and event["good"] == good
                for event in self.active_sector_events()):
             midpoint = midpoint * 150 // 100
+        midpoint = midpoint * self.ports[port].get("market_modifier", 100) // 100
         multiplier = 110 if action == "buy" else ((104 if self.hard_mode else 90) + min(10, self.factions.get("traders", 0) // 2))
         if action == "buy" and good in ("ore", "medicine"):
             faction = "miners" if good == "ore" else "scientists"
@@ -2424,6 +2654,12 @@ class Game:
             raise GameError(f"unknown port: {port}")
         if good not in GOODS:
             raise GameError(f"unknown good: {good}")
+
+    def _require_service(self, service: str) -> None:
+        available = self.ports.get(self.location, {}).get(
+            "services", ["market", "refuel", "repair", "crew", "exploration", "shipyard"])
+        if service not in available:
+            raise GameError(f"{self.location} does not have a {service} service")
 
     def _available(self, *, maintenance: bool = False) -> None:
         if not self.active_ship_id:
@@ -2467,6 +2703,8 @@ class Game:
                 result = self._trade("sell", **kwargs)
             elif action == "travel":
                 result = self._travel(**kwargs)
+            elif action == "deploy_carrier":
+                result = self._deploy_carrier(**kwargs)
             elif action == "jump":
                 result = self._jump(**kwargs)
             elif action == "abort_transmission":
@@ -2586,6 +2824,9 @@ class Game:
     def _trade(self, action: str, good: str, amount: int) -> dict:
         self._available()
         self._check_port_good(self.location, good)
+        if (self.ship.get("class_id") == "carrier" or
+                self.ports[self.location].get("entity_type") == "carrier"):
+            raise GameError("carrier bays use cargo transfers; bulk propellant must be delivered by another ship")
         if type(amount) is not int or amount <= 0 or amount > 10000:
             raise GameError("amount must be a positive integer <= 10000")
         self._enforce_open_delivery_shortages()
@@ -2640,6 +2881,8 @@ class Game:
 
     def _travel(self, destination: str, pirate_stance: str = "pay") -> dict:
         self._available()
+        if self.ship.get("class_id") == "carrier":
+            raise GameError("carriers relocate from the map and burn delivered bulk propellant")
         if destination not in self.ports or destination == self.location:
             raise GameError("invalid destination")
         corridor = self.route_status(self.location, destination)
@@ -2656,12 +2899,19 @@ class Game:
             raise GameError(f"Asteroid field blocks the direct approach to {destination}; wait for the field to orbit onward")
         distance = abs(self.ports[destination]["distance"] -
                        self.ports[self.location]["distance"])
+        carrier_route = any(self.ports.get(node, {}).get("entity_type") == "carrier"
+                            for node in corridor["path"])
         risk = self.route_risk(self.location, destination)
         # Distances are already expressed in map hops; charge one unit per
         # hop, with charted routes retaining their half-cost advantage.
         base_fuel = max(1, distance)
         connected = self.route_connected(self.location, destination)
-        fuel_cost = max(1, base_fuel // 2) if connected else base_fuel * 2
+        if carrier_route:
+            fuel_cost = max(1, math.ceil(base_fuel / 3))
+        elif connected:
+            fuel_cost = max(1, base_fuel // 2)
+        else:
+            fuel_cost = base_fuel * 3
         fuel_cost += (4 if blocked else 0) + (2 if risk["kind"] == "pirates" and pirate_stance == "evade" else 0)
         pilot = self.crew_member(self.active_ship_id, "pilot")
         engineer = self.crew_member(self.active_ship_id, "engineer")
@@ -2877,6 +3127,7 @@ class Game:
 
     def _repair(self) -> dict:
         self._available(maintenance=True)
+        self._require_service("repair")
         cost = self._repair_cost(self.active_ship_id)
         if self.credits < cost:
             raise GameError("insufficient credits")
@@ -2886,6 +3137,9 @@ class Game:
 
     def _refuel(self, amount: int) -> dict:
         self._available(maintenance=True)
+        if self.ship.get("class_id") == "carrier":
+            raise GameError("carriers do not use tank fuel; deliver bulk propellant as cargo")
+        self._require_service("refuel")
         if type(amount) is not int or amount <= 0:
             raise GameError("fuel amount must be a positive integer")
         if self.ship["fuel"] + amount > self.ship["max_fuel"]:
@@ -2904,6 +3158,8 @@ class Game:
     def _emergency_refuel(self, amount: int) -> dict:
         """Buy reserve fuel at a dock when local market stock is exhausted."""
         self._available(maintenance=True)
+        if self.ship.get("class_id") == "carrier":
+            raise GameError("carriers do not use tank fuel; deliver bulk propellant as cargo")
         if type(amount) is not int or amount <= 0 or self.ship["fuel"] + amount > self.ship["max_fuel"]:
             raise GameError("emergency fuel amount exceeds tank capacity")
         if self.ports[self.location]["stock"]["fuel"] > 0:
@@ -2917,6 +3173,7 @@ class Game:
 
     def _upgrade(self) -> dict:
         self._available()
+        self._require_service("shipyard")
         cost = 400 + self.ship["capacity"] * 10
         if self.credits < cost:
             raise GameError("insufficient credits")
@@ -2926,6 +3183,7 @@ class Game:
 
     def _sell_hold_upgrade(self) -> dict:
         self._available(maintenance=True)
+        self._require_service("shipyard")
         if self.ship["capacity"] <= 30:
             raise GameError("no cargo hold upgrade to sell")
         if self.cargo_used() > self.ship["capacity"] - 10:
@@ -2938,6 +3196,7 @@ class Game:
 
     def _buy_ship(self) -> dict:
         self._available()
+        self._require_service("shipyard")
         tier = self.ship.get("modem_tier", 0)
         if tier >= len(TIERS) - 1:
             raise GameError("fastest ship class already owned")

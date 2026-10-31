@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="576" height="112" viewBox="0 0 576 112" fill="none">
   <title>Trade Net · independent shipwright collection</title>
-  <desc>Six original nose-up vector hulls. External SVG use targets: wayfarer, scout, courier, express, wisp, hauler. Each symbol is 96 by 112 with transparent safe margins. Wisp is the 200 Hz ultra-narrow scout; Hauler is the 2300 Hz FSK freighter.</desc>
+  <desc>Seven original nose-up vector hulls. External SVG use targets: wayfarer, scout, courier, express, wisp, hauler, carrier. Each symbol is 96 by 112 with transparent safe margins. Wisp is the 200 Hz ultra-narrow scout; Hauler is the 2300 Hz FSK freighter.</desc>
   <defs>
     <linearGradient id="tn-ship-wayfarer-hull" x1="0" y1="0" x2="1" y2="1">
       <stop stop-color="#c1e8ee"/><stop offset=".38" stop-color="#638f9d"/><stop offset="1" stop-color="#203b4b"/>
@@ -127,6 +127,14 @@
     <path d="M20 91 L30 91 M43 91 L53 91 M66 91 L76 91" stroke="#ffe4ae" stroke-width="2"/>
     <path d="M10 44 L10 49 M86 44 L86 49" stroke="#a1dacf" stroke-width="2"/>
     <path d="M10 75 L14 79 M82 79 L86 75" stroke="#c4ab77" stroke-width="2"/>
+  </symbol>
+  <symbol id="carrier" viewBox="0 0 96 112">
+    <path d="M48 7 L56 23 L55 37 L78 43 L88 54 L85 72 L70 78 L63 69 L59 91 L70 100 L68 106 L50 101 L31 106 L29 100 L40 91 L36 69 L29 78 L12 72 L9 54 L19 43 L41 37 L40 23 Z" fill="#9a8060" stroke="#f1d49a" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M42 30 L48 18 L54 30 L53 82 L48 91 L43 82 Z" fill="#d8bf91" stroke="#fff0c6" stroke-width="1.5"/>
+    <path d="M20 48 L36 45 L37 62 L19 67 Z M76 48 L60 45 L59 62 L77 67 Z" fill="#354d5a" stroke="#d9c397" stroke-width="2"/>
+    <path d="M23 51 L32 49 L33 59 L22 62 Z M73 51 L64 49 L63 59 L74 62 Z" fill="#6ed7d3" stroke="#a6f5e7" stroke-width="1.5"/>
+    <path d="M42 43 H54 V54 H42 Z M42 58 H54 V69 H42 Z M43 73 H53 V81 H43 Z" fill="#3c5560" stroke="#ffe2a5" stroke-width="1.5"/>
+    <path d="M45 4 L48 0 L51 4 M44 99 L48 111 L52 99" fill="none" stroke="#9be6e3" stroke-width="2"/>
   </symbol>
   <use href="#wayfarer" x="0" y="0" width="96" height="112"/>
   <use href="#scout" x="96" y="0" width="96" height="112"/>

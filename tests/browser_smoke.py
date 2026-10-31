@@ -139,9 +139,11 @@ class CockpitBrowserTests(unittest.TestCase):
     def test_beacon_preview_and_mobile_comms_are_rf_safe(self):
         page = self.page
         page.get_by_role('tab', name='Comms', exact=True).click()
+        expect(page.locator('#beaconPanel')).not_to_be_visible()
+        page.locator('[data-comms-mode=beacon]').click()
         expect(page.locator('#beaconPanel')).to_be_visible()
         expect(page.locator('#beaconSend')).to_be_disabled()
-        page.locator('#beaconGood').select_option('food')
+        self.assertEqual(page.locator('#beaconGood').input_value(), page.evaluate('state.game.specialization'))
         page.locator('#beaconPreviewButton').click()
         expect(page.locator('#beaconQuote')).to_contain_text('bytes')
         expect(page.locator('#feedback')).to_contain_text('Nothing transmitted')
@@ -156,12 +158,28 @@ class CockpitBrowserTests(unittest.TestCase):
     def test_comms_dropdowns_keep_focus_during_state_renders(self):
         page = self.page
         page.get_by_role('tab', name='Comms', exact=True).click()
-        for selector in ('#radioContract', '#beaconContract', '#beaconGood'):
+        page.locator('[data-comms-mode=beacon]').click()
+        for selector in ('#beaconContract', '#beaconGood'):
             control = page.locator(selector)
             control.focus()
             page.evaluate('refresh()')
             expect(control).to_be_focused()
             self.assertEqual(control.evaluate('e => e === document.activeElement'), True)
+        page.locator('[data-comms-mode=contact]').click()
+        page.evaluate("""() => {state.radio_contacts.W1AW={};state.radio_resources.W1AW={richness:'ore'};
+          state.radio_contracts.W1AW=[{id:'W1AW-C0001',status:'open',quantity:3,good:'ore'}];
+          document.getElementById('radioStation').value='W1AW';renderExchange()}""")
+        control = page.locator('#radioContract')
+        expect(control).to_be_visible()
+        expect(page.locator('[value=radio_contact]')).not_to_be_visible()
+        control.focus()
+        page.evaluate('refresh()')
+        expect(control).to_be_focused()
+        page.locator('[data-comms-mode=cargo]').click()
+        expect(page.locator('#exportWarehouse')).to_be_visible()
+        expect(page.locator('#exchangeForm')).not_to_be_visible()
+        page.locator('[data-comms-mode=contact]').click()
+        expect(page.locator('#radioStation')).to_have_value('W1AW')
 
     def snapshot(self, name):
         directory = os.environ.get('TRADENET_SCREENSHOT_DIR')

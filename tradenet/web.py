@@ -1030,6 +1030,10 @@ class App:
                                   for port in self.game.ports if port != self.game.location},
                 "chart_hazards": {port: self.game.route_risk(self.game.ports[port].get("map_parent"), port)
                                   for port in self.game.ports if self.game.ports[port].get("map_parent")},
+                "carrier_hazards": {f"{carrier}|{planet}": self.game.route_risk(carrier, planet)
+                    for carrier, site in self.game.ports.items()
+                    if site.get("entity_type") == "carrier"
+                    for planet in site.get("linked_planets", [])},
                 "goods": GOODS,
                 "rare_goods": sorted(RARE),
                 "prices": {port: {good: {"buy": self.game.price(port, good, "buy"),

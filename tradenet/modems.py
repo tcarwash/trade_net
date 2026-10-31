@@ -27,6 +27,10 @@ SHIPS = (
     {"id": "express2400", "name": "Express", "tier": 2, "cost": 1800,
      "max_bandwidth_hz": 2400, "frames_per_tick": 16, "speed": 3, "capacity": 30,
      "sprite": "express", "description": "Full-width 2400 Hz express; trades cargo space for game travel speed."},
+    {"id": "carrier", "name": "Carrier", "tier": 2, "cost": 18000,
+     "max_bandwidth_hz": 2400, "frames_per_tick": 32, "speed": 1, "capacity": 500,
+     "sprite": "carrier", "entity_type": "carrier",
+     "description": "Mobile deep-space base with a massive hold. Relocation burns bulk propellant delivered by another ship; two planetary links establish safe, reduced-fuel routes for the fleet."},
 )
 
 

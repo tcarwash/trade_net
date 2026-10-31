@@ -1552,8 +1552,8 @@ function tuck(id,title,open=false){let node=el(id);if(!node||node.dataset.tucked
 function setupFleetViews(){
   if(el('fleetViews'))return;
   const panel=el('fleetPanel'),nav=document.createElement('nav');nav.id='fleetViews';nav.className='fleet-views';nav.setAttribute('aria-label','Fleet sections');nav.setAttribute('role','group');
-  const specs=[['ships','Ships',['fleet','fleetManager','fleetForm']],['crew','Crew',['fleetOperations']],['logistics','Logistics',['fleetAutomation','fleetDoctrine']],['haven','Headquarters',['havenPanel']]];
-  for(const [key,label] of specs){const button=document.createElement('button');button.type='button';button.textContent=label;button.dataset.fleetView=key;button.setAttribute('aria-pressed',String(key==='ships'));nav.append(button);const section=document.createElement('div');section.id='fleetView-'+key;section.className='fleet-view';section.hidden=key!=='ships';for(const id of key==='ships'?['fleet','fleetManager','fleetForm']:key==='crew'?['fleetOperations']:key==='logistics'?['fleetAutomation','fleetDoctrine']:['havenPanel']){const node=el(id);if(node)section.append(node)}
+  const specs=[['ships','Ships',['fleet','fleetManager','fleetForm']],['crew','Crew',['fleetOperations']],['logistics','Logistics',['fleetAutomation','fleetDoctrine','loanDesk']],['haven','Headquarters',['havenPanel']]];
+  for(const [key,label] of specs){const button=document.createElement('button');button.type='button';button.textContent=label;button.dataset.fleetView=key;button.setAttribute('aria-pressed',String(key==='ships'));nav.append(button);const section=document.createElement('div');section.id='fleetView-'+key;section.className='fleet-view';section.hidden=key!=='ships';for(const id of specs.find(spec=>spec[0]===key)[2]){const node=el(id);if(node)section.append(node)}
     button.addEventListener('click',()=>{localStorage.setItem(preferenceKey('fleet-view'),key);for(const [view] of specs){el('fleetView-'+view).hidden=view!==key;nav.querySelector(`[data-fleet-view="${view}"]`).setAttribute('aria-pressed',String(view===key))}});panel.append(section)}
   panel.querySelector('.panel-heading').after(nav);
   const saved=localStorage.getItem(preferenceKey('fleet-view'))||'ships';nav.querySelector(`[data-fleet-view="${saved}"]`)?.click();
@@ -1594,6 +1594,7 @@ function openPlanetContext(port){
   const addAction=(label,position,action)=>{let button=planetDialogButton(label,action,false);button.className='planet-pie-action '+position;actions.append(button)};
   if(docked){
     if(site.entity_type==='carrier'&&g.ship.class_id==='carrier')addAction('Move carrier','pie-market',openCarrierPlacement);
+    if(port==='Haven')addAction('Headquarters','pie-info',()=>{closePlanetContextMenu();setView('fleet');el('fleetViews')?.querySelector('[data-fleet-view="haven"]')?.click();el('fleetPanel').scrollIntoView({behavior:motionBehavior(),block:'start'})});
     if((site.services||[]).includes('market'))addAction('Market','pie-market',()=>{closePlanetContextMenu();marketDialog.showModal()});
     if((site.services||[]).includes('shipyard'))addAction('Shipyard','pie-shipyard',()=>openShipyardAt(port));
     const trafficCount=Object.values(g.npc_captains||{}).filter(captain=>captain.location===port).length;

@@ -6,6 +6,54 @@ TIERS = (
     {"name": "Express", "max_bandwidth_hz": 2400, "frames_per_tick": 16, "upgrade_cost": 1200},
 )
 
+# These are game progression profiles. A profile only unlocks advertised
+# Data2G modes that match it; it never fabricates an RF mode.
+STARTING_RADIO_PROFILES = ("fsk-500", "fsk-1200", "fsk-2300")
+SURVEY_BEACON_PROFILES = (
+    ("n4-200", "N4 · 200 Hz"),
+    ("n10-500", "N10 · 500 Hz"),
+    ("qpsk-1200", "QPSK · 1200 Hz"),
+    ("qam16-1200", "16-QAM · 1200 Hz"),
+    ("polar-1200", "Polar · 1200 Hz"),
+    ("w48-2400", "W48 · 2400 Hz"),
+    ("64l-2400", "64-ary · 2400 Hz"),
+    ("256l-2400", "256-ary · 2400 Hz"),
+)
+
+
+def radio_profile_key(mode: dict) -> str | None:
+    """Return the progression profile for a live Data2G mode advertisement."""
+    mode_id = str(mode.get("mode_id", "")).lower()
+    bandwidth = mode.get("bandwidth_hz")
+    if type(bandwidth) is not int:
+        return None
+    if mode_id.startswith("fsk"):
+        family = "fsk"
+    elif mode_id.startswith("n4-"):
+        family = "n4"
+    elif mode_id.startswith("n10-"):
+        family = "n10"
+    elif mode_id.startswith("w48-"):
+        family = "w48"
+    elif "qpsk" in mode_id:
+        family = "qpsk"
+    elif "16qam" in mode_id:
+        family = "qam16"
+    elif "polar" in mode_id:
+        family = "polar"
+    elif "256l" in mode_id:
+        family = "256l"
+    elif "64l" in mode_id:
+        family = "64l"
+    else:
+        return None
+    return f"{family}-{bandwidth}"
+
+
+def unlocked_modes(advertised: list[dict], profiles: list[str] | tuple[str, ...]) -> list[dict]:
+    unlocked = set(profiles)
+    return [mode for mode in advertised if radio_profile_key(mode) in unlocked]
+
 
 # These are game-balance windows, travel speeds and cargo capacities, not
 # measured RF throughput. Wayfarer is the separate, non-buyable starter hull.

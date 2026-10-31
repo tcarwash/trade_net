@@ -10,6 +10,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from .modems import TIERS
+from .wordlists import CREW_NAMES, PLANET_PREFIXES, PLANET_SUFFIXES
 
 
 GOODS = ("food", "ore", "fuel", "medicine", "aether", "iridium", "mycelium")
@@ -38,7 +39,32 @@ PORT_ROLES = ("Home hub", "Refinery", "Research enclave", "Mining colony",
               "Salvage outpost", "Fortress station", "Frontier observatory")
 PORT_TYPES = ("planet", "station", "planet", "planet", "station",
               "planet", "planet", "station", "station", "station")
+PORT_PLANET_TYPES = {"Haven": "temperate", "Vesper": "ringed", "Prospect": "desert",
+                     "Cinder": "volcanic", "Aurora": "lush"}
+PORT_ATMOSPHERES = {"Cinder": "corrosive"}
+FRONTIER_PLANET_TYPES = {"Frontier refinery": "volcanic", "Survey settlement": "ice",
+                         "Agricultural outpost": "lush"}
+FRONTIER_ATMOSPHERES = {"Frontier refinery": "toxic"}
+PLANET_VARIANT_COUNT = 16
 SHIPYARD_PORTS = {"Haven", "Kepler", "Meridian", "Bastion"}
+
+
+def planet_variant_index(name: str, used: set[int] | None = None) -> int:
+    """Return a stable pixel-art variant for a planet name."""
+    value = 2166136261
+    for byte in name.encode("utf-8"):
+        value = ((value ^ byte) * 16777619) & 0xFFFFFFFF
+    # Mix the FNV result before reducing it; neighboring names otherwise tend
+    # to collide in the small sprite set. Linear probe to avoid local repeats.
+    value ^= value >> 16
+    value = (value * 0x7FEB352D) & 0xFFFFFFFF
+    value ^= value >> 15
+    candidate = value % PLANET_VARIANT_COUNT
+    for _ in range(PLANET_VARIANT_COUNT):
+        if used is None or candidate not in used:
+            return candidate
+        candidate = (candidate + 1) % PLANET_VARIANT_COUNT
+    return value % PLANET_VARIANT_COUNT
 
 
 def port_profile(name: str, role: str, index: int = 0) -> dict:
@@ -51,10 +77,16 @@ def port_profile(name: str, role: str, index: int = 0) -> dict:
         services.append("shipyard")
     # Stations handle interstellar trade efficiently; planetary markets have
     # lower fees for locally produced goods.
-    return {"entity_type": entity_type, "services": services,
-            "market_modifier": 105 if entity_type == "station" else 95,
-            "shipyard_modifier": 110 if entity_type == "station" else 100}
+    profile = {"entity_type": entity_type, "services": services,
+               "market_modifier": 105 if entity_type == "station" else 95,
+               "shipyard_modifier": 110 if entity_type == "station" else 100}
+    if entity_type == "planet":
+        profile["planet_type"] = PORT_PLANET_TYPES.get(name, FRONTIER_PLANET_TYPES.get(role, "temperate"))
+        profile["atmosphere"] = PORT_ATMOSPHERES.get(name, FRONTIER_ATMOSPHERES.get(role, "breathable"))
+        profile["planet_variant"] = planet_variant_index(name)
+    return profile
 EQUIPMENT = {"scanner": 220, "shield": 350, "navigator": 420, "defense": 380,
+             "life_support": 900,
              "weapons": 650}
 EQUIPMENT_CARGO_SPACE = {"weapons": 4}
 CREW_ROLES = {
@@ -63,9 +95,6 @@ CREW_ROLES = {
     "broker": {"name": "Broker", "effect": "Earn 5% more on local freight per skill level"},
     "signal": {"name": "Signal officer", "effect": "Protect hull during failed real RF transfers; train on confirmed deliveries"},
 }
-CREW_NAMES = ("Ari Vale", "Nia Soren", "Jax Moreno", "Elara Quinn",
-              "Ren Osei", "Mira Sol", "Tavi Reyes", "Sera Moss",
-              "Kai Mercer", "Lyra Chen", "Dax Imani", "Noor Venn")
 INCIDENT_INTERVAL = 8  # Shared economy ticks; no wall-clock-only randomness.
 NPC_INTERVAL = 6  # A captain's route advances every 30 in-game minutes.
 ENCOUNTER_INTERVAL = 12  # A new local opportunity every in-game hour.
@@ -305,8 +334,26 @@ LOCAL_ENCOUNTER_TEMPLATES = (
          {"id": "log", "label": "File an observation", "description": "No cost → +30 cr, +1 traders",
           "credits": 30, "faction": "traders", "standing": 1}]},
 )
-
-
+TRANSIT_ENCOUNTER_TEMPLATES = (
+    {"kind": "derelict", "title": "Derelict Ship", "description": "A cold vessel drifts just off your course, its transponder dark.",
+     "choices": [
+         {"id": "salvage", "label": "Salvage the cargo pod", "description": "3 hull risk → 1 ore, +70 cr, +1 miners",
+          "hull": 3, "loot": {"ore": 1}, "credits": 70, "faction": "miners", "standing": 1},
+         {"id": "scan", "label": "Scan from a safe distance", "description": "No cost → +30 cr, +1 explorers",
+          "credits": 30, "faction": "explorers", "standing": 1}]},
+    {"kind": "derelict_trap", "title": "Derelict Ship", "description": "A cold vessel drifts just off your course, its transponder dark. Scans show intermittent power in the cargo bay.",
+     "choices": [
+         {"id": "salvage", "label": "Salvage the cargo pod", "description": "12 hull risk → 1 ore, +35 cr, +1 miners",
+          "hull": 12, "loot": {"ore": 1}, "credits": 35, "faction": "miners", "standing": 1},
+         {"id": "scan", "label": "Scan from a safe distance", "description": "No cost → +30 cr, +1 explorers",
+          "credits": 30, "faction": "explorers", "standing": 1}]},
+    {"kind": "survey_buoy", "title": "Unregistered Survey Buoy", "description": "A forgotten research buoy is still broadcasting a partial chart update.",
+     "choices": [
+         {"id": "recover", "label": "Recover its data core", "description": "1 ship fuel → +65 cr, +2 scientists",
+          "fuel": 1, "credits": 65, "faction": "scientists", "standing": 2},
+         {"id": "relay", "label": "Relay the beacon coordinates", "description": "No cost → +25 cr, +1 explorers",
+          "credits": 25, "faction": "explorers", "standing": 1}]},
+)
 class GameError(ValueError):
     """A command is invalid without modifying game state."""
 
@@ -352,6 +399,8 @@ class Game:
     sector_events: list[dict] = field(default_factory=list)
     expeditions: dict = field(default_factory=dict)
     radio_bands_seen: list[str] = field(default_factory=list)
+    radio_unlocks: list[str] = field(default_factory=list)
+    survey_beacons: list[str] = field(default_factory=list)
     haven_facilities: dict[str, int] = field(default_factory=dict)
     encounters: dict = field(default_factory=dict)
     npc_captains: dict = field(default_factory=dict)
@@ -375,6 +424,9 @@ class Game:
     pirate_groups: dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self):
+        from .modems import STARTING_RADIO_PROFILES
+        if not self.radio_unlocks:
+            self.radio_unlocks = list(STARTING_RADIO_PROFILES)
         if not self.galaxies:
             self.galaxies = {"home": {"name": self.name,
                 "specialization": self.specialization, "ports": self.ports}}
@@ -388,11 +440,24 @@ class Game:
             for i, port in enumerate(PORT_NAMES):
                 record = self.galaxies["home"]["ports"][port]
                 record.setdefault("role", PORT_ROLES[i])
-                for key, value in port_profile(port, record["role"], i).items():
+                profile = port_profile(port, record["role"], i)
+                for key, value in profile.items():
                     record.setdefault(key, value)
+                if record.get("entity_type") == "planet":
+                    record["planet_type"] = profile["planet_type"]
             for name, record in self.galaxies["home"]["ports"].items():
-                for key, value in port_profile(name, record.get("role", "Settlement")).items():
+                profile = port_profile(name, record.get("role", "Settlement"))
+                for key, value in profile.items():
                     record.setdefault(key, value)
+                if record.get("entity_type") == "planet":
+                    record["planet_type"] = profile["planet_type"]
+            used_planet_variants = {}
+            for name, record in sorted(self.galaxies["home"]["ports"].items()):
+                if record.get("entity_type") != "planet":
+                    continue
+                used = used_planet_variants.setdefault(record["planet_type"], set())
+                record["planet_variant"] = planet_variant_index(name, used)
+                used.add(record["planet_variant"])
         self._initialize_starport_graph()
         # Migrate version-one single-ship saves without changing their schema.
         if not self.fleet and self.active_ship_id:
@@ -843,6 +908,20 @@ class Game:
         self.artifact_history[port] = deepcopy(artifact)
         return artifact
 
+    def _recover_survey_beacon(self, port: str) -> dict | None:
+        """Recover one unique survey beacon and unlock its next radio profile."""
+        if port in self.survey_beacons:
+            return None
+        from .modems import SURVEY_BEACON_PROFILES
+        self.survey_beacons.append(port)
+        index = min(len(self.survey_beacons) - 1, len(SURVEY_BEACON_PROFILES) - 1)
+        profile, label = SURVEY_BEACON_PROFILES[index]
+        newly_unlocked = profile not in self.radio_unlocks
+        if newly_unlocked:
+            self.radio_unlocks.append(profile)
+        return {"profile": profile, "label": label, "newly_unlocked": newly_unlocked,
+                "count": len(self.survey_beacons)}
+
     def _resolve_encounter(self, port: str, choice: str) -> dict:
         """A site resolves exactly once, with physical ship costs and rewards."""
         self._available()
@@ -871,6 +950,113 @@ class Game:
         outcome = self._apply_encounter_option(event, option)
         event.update(status="resolved", choice=choice, resolved_tick=self.tick)
         return {**outcome, "incident_id": incident_id, "recurring": True}
+
+    def _resolve_transit_encounter(self, choice: str) -> dict:
+        """Resolve a delayed pirate contact and resume the flight."""
+        encounter = self.ship.get("flight_encounter")
+        if not self.ship.get("destination") or not encounter or encounter.get("status") != "pending":
+            raise GameError("there is no in-flight encounter awaiting a decision")
+        if encounter.get("kind") != "pirates":
+            option = next((item for item in encounter.get("choices", []) if item["id"] == choice), None)
+            if option is None:
+                raise GameError("choose a valid response to this in-flight encounter")
+            fuel, hull = int(option.get("fuel", 0)), int(option.get("hull", 0))
+            spent, loot = option.get("cargo", {}), option.get("loot", {})
+            if self.ship["fuel"] < fuel:
+                raise GameError("insufficient fuel for that encounter choice")
+            if self.ship["condition"] - hull < 10:
+                raise GameError("not enough hull integrity for that salvage attempt")
+            if any(self.cargo.get(good, 0) < count for good, count in spent.items()):
+                raise GameError("load the requested supplies before choosing this outcome")
+            if self.cargo_used() - sum(spent.values()) + sum(loot.values()) > self.ship["capacity"]:
+                raise GameError("free cargo space before collecting that salvage")
+            self.ship["fuel"] -= fuel
+            self.ship["condition"] -= hull
+            for good, count in spent.items():
+                self.cargo[good] -= count
+                eligible = self.ship.setdefault("export_cargo", {})
+                eligible[good] = max(0, eligible.get(good, 0) - count)
+            for good, count in loot.items():
+                self.cargo[good] += count
+            reward = int(option.get("credits", 0))
+            faction, standing = option.get("faction"), int(option.get("standing", 0))
+            if faction in self.factions:
+                self.factions[faction] += standing
+            self.credits += reward
+            now = time.time()
+            elapsed = float(encounter.get("elapsed_seconds", 0))
+            remaining = float(encounter.get("remaining_seconds", 0))
+            paused_for = max(0.0, now - float(encounter.get("trigger_at", now)))
+            for queued in self.ship.get("flight_encounters", []):
+                queued["trigger_at"] += paused_for
+            self.ship["travel_seconds"] = elapsed + remaining
+            self.ship["departed_at"] = now - elapsed
+            self.ship["arrival_at"] = now + remaining
+            self.ship.pop("flight_encounter", None)
+            outcome = option["label"]
+            if encounter.get("kind") == "derelict_trap" and choice == "salvage":
+                outcome = "Salvage attempt triggered an ambush"
+            return {"title": encounter["title"], "outcome": outcome,
+                    "reward": reward, "faction": faction, "standing": standing,
+                    "loot": deepcopy(loot), "destination": self.ship["destination"]}
+        if choice not in ("fight", "evade", "pay"):
+            raise GameError("choose fight, evade, or pay for this pirate encounter")
+        equipment = self.ship.get("equipment", [])
+        weapons = equipment.count("weapons")
+        pirate_key = encounter["pirate_key"]
+        strength = self.pirate_groups.setdefault(pirate_key, encounter.get("strength", 6))
+        distance = int(encounter.get("distance", 1))
+        risk = encounter.get("risk", {})
+        mitigation = max(0, int(self.ship.get("modem_tier", 0)) * 2)
+        engineer = self.crew_member(self.active_ship_id, "engineer")
+        if engineer:
+            mitigation += engineer["level"] * 2
+        if "reinforced_plating" in self.faction_perks:
+            mitigation += 3
+        toll = 0
+        if choice == "evade":
+            if self.ship["fuel"] < 2:
+                raise GameError("evading pirates requires 2 additional fuel")
+            self.ship["fuel"] -= 2
+            mitigation += 2 - min(6, weapons * 2)
+            outcome = "Evaded pirates · group remains on this route" + (
+                " · heavy weapon load made escape harder" if weapons else "")
+        elif choice == "fight":
+            strength = max(0, strength - (1 + weapons * 2))
+            self.pirate_groups[pirate_key] = strength
+            outcome = ("Pirates driven from this route" if strength == 0 else
+                       f"Pirate group weakened · {strength} strength remains")
+            mitigation += (7 if "defense" in equipment else 0) + min(5, self.factions.get("security", 0) // 3)
+            mitigation += min(8, weapons * 2)
+            self.factions["security"] += 1
+        else:
+            toll = min(self.credits, max(0, 10 + distance * 3 - self.factions.get("pirates", 0) * 2))
+            if "pirate_codes" in self.faction_perks:
+                toll //= 2
+            self.credits -= toll
+            self.factions["pirates"] += 1
+            outcome = f"Pirate toll paid · {toll} credits"
+        if "defense" not in equipment and (choice == "evade" or
+                (choice in ("fight", "pay") and not weapons)):
+            damage = risk.get("damage", 0) + 5 + (min(6, weapons * 2) if choice == "evade" else 0)
+        else:
+            damage = risk.get("damage", 0)
+        hazard_damage = max(0, damage - mitigation)
+        self.ship["condition"] = max(0, self.ship["condition"] - hazard_damage)
+        now = time.time()
+        elapsed = float(encounter.get("elapsed_seconds", 0))
+        remaining = float(encounter.get("remaining_seconds", 0))
+        paused_for = max(0.0, now - float(encounter.get("trigger_at", now)))
+        for queued in self.ship.get("flight_encounters", []):
+            queued["trigger_at"] += paused_for
+        self.ship["travel_seconds"] = elapsed + remaining
+        self.ship["departed_at"] = now - elapsed
+        self.ship["arrival_at"] = now + remaining
+        self.ship.pop("flight_encounter", None)
+        return {"title": encounter["title"], "outcome": outcome,
+                "strength_remaining": strength, "route_cleared": strength == 0,
+                "hazard_damage": hazard_damage, "toll": toll,
+                "destination": self.ship["destination"]}
 
     def _apply_encounter_option(self, encounter: dict, option: dict) -> dict:
         fuel_cost, hull_cost = option.get("fuel", 0), option.get("hull", 0)
@@ -1353,9 +1539,10 @@ class Game:
             eligible["medicine"] = max(0, eligible.get("medicine", 0) - 2)
         self.credits += objective["reward"]
         self.factions["explorers"] += 2
+        survey_unlock = self._recover_survey_beacon("Eidolon") if self.story_stage == 2 else None
         self.story_stage += 1
         return {"title": objective["title"], "reward": objective["reward"],
-                "next": self.story_objective()}
+                "next": self.story_objective(), "survey_unlock": survey_unlock}
 
     def _cancel_vip(self, job_id: str) -> dict:
         self._available()
@@ -1551,10 +1738,6 @@ class Game:
         if child_count == 0:
             parent["frontier_dead_end"] = True
             return 0
-        prefixes = ("Aster", "Nacre", "Vela", "Kestrel", "Sagan", "Tern",
-                    "Caldera", "Peregrine", "Orison", "Lumen", "Rook", "Morrow")
-        suffixes = ("Reach", "Crossing", "Horizon", "Drift", "Spur", "Relay",
-                    "Outpost", "Basin", "Gate", "Haven", "Wake", "Point")
         roles = ("Frontier refinery", "Survey settlement", "Mining habitat",
                  "Trade waypoint", "Research station", "Agricultural outpost")
         signature = self.galaxies["home"].get("specialization", self.specialization)
@@ -1566,10 +1749,10 @@ class Game:
                       and rng.random() < .48 else None)
         gate_kind = rng.choice(("reputation", "contract")) if gate_child is not None else None
         for child_number, offset in enumerate(offsets):
-            name = f"{rng.choice(prefixes)} {rng.choice(suffixes)}-{index:03d}"
+            name = f"{rng.choice(PLANET_PREFIXES)} {rng.choice(PLANET_SUFFIXES)}-{index:03d}"
             while name in ports:
                 index += 1
-                name = f"{rng.choice(prefixes)} {rng.choice(suffixes)}-{index:03d}"
+                name = f"{rng.choice(PLANET_PREFIXES)} {rng.choice(PLANET_SUFFIXES)}-{index:03d}"
             stock = {good: rng.randint(14, 42) for good in GOODS}
             production = {good: rng.randint(0, 2) for good in GOODS}
             consumption = {good: rng.randint(0, 2) for good in GOODS}
@@ -1594,6 +1777,14 @@ class Game:
                 "map_parent": discovered,
                 "map_depth": parent_depth + 1, "map_angle": parent_angle + offset,
                 "map_neighbors": [discovered]}
+            if entity_type == "planet":
+                child["planet_type"] = FRONTIER_PLANET_TYPES.get(role, "temperate")
+                child["atmosphere"] = (FRONTIER_ATMOSPHERES.get(role) or
+                                       ("toxic" if rng.random() < .28 else "breathable"))
+                used = {record.get("planet_variant") for record in ports.values()
+                        if record.get("entity_type") == "planet"
+                        and record.get("planet_type") == child["planet_type"]}
+                child["planet_variant"] = planet_variant_index(name, used)
             if child_number == gate_child and gate_kind == "reputation":
                 child["map_gate"] = {"kind": "reputation", "faction": "explorers",
                                      "required": min(8, max(2, parent_depth)),
@@ -1755,8 +1946,25 @@ class Game:
     def _all_arrivals(self):
         for ship in self.fleet.values():
             if ship.get("destination") is not None:
+                if ship.get("flight_encounter", {}).get("status") == "pending":
+                    continue
+                now = time.time()
+                encounters = ship.get("flight_encounters", [])
+                while (encounters and encounters[0].get("kind") == "pirates" and
+                       self.pirate_groups.get(encounters[0].get("pirate_key"),
+                           encounters[0].get("strength", 0)) <= 0):
+                    encounters.pop(0)
+                if encounters and now >= encounters[0].get("trigger_at", float("inf")):
+                    arrival_at = ship.get("arrival_at")
+                    encounter = encounters.pop(0)
+                    encounter.update(status="pending",
+                        elapsed_seconds=max(0.0, now - float(ship.get("departed_at") or now)),
+                        remaining_seconds=max(0.0, float(arrival_at or now) - now))
+                    ship["flight_encounter"] = encounter
+                    ship["arrival_at"] = None
+                    continue
                 arrival_at = ship.get("arrival_at")
-                arrived = (time.time() >= arrival_at if arrival_at is not None else
+                arrived = (now >= arrival_at if arrival_at is not None else
                            self.tick >= (ship.get("arrival_tick") or self.tick + 1))
                 if arrived:
                     is_carrier_node = self.ports.get(ship["destination"], {}).get("entity_type") == "carrier"
@@ -1769,6 +1977,8 @@ class Game:
                     ship.pop("departed_at", None)
                     ship.pop("travel_seconds", None)
                     ship.pop("origin_port", None)
+                    ship.pop("flight_encounter", None)
+                    ship.pop("flight_encounters", None)
                     if (ship.get("galaxy", "home") == "home" and not is_carrier_node and
                             self._reveal_encounter(ship["location"])):
                         encounter = self.encounters[ship["location"]]
@@ -1792,6 +2002,10 @@ class Game:
                         else:
                             find = {"title": "Uncharted trade outpost", "reward": 80 + index * 10}
                         self.discoveries[ship["location"]] = find
+                        if find["title"] == "Ancient navigation beacon":
+                            survey_unlock = self._recover_survey_beacon(ship["location"])
+                            if survey_unlock:
+                                find["survey_unlock"] = survey_unlock
                         discovery_reward = (explore_bonus + find["reward"]) * (
                             100 + 25 * self.haven_facilities.get("survey_archive", 0)) // 100
                         self.credits += discovery_reward
@@ -1799,6 +2013,7 @@ class Game:
                             "tick": self.tick, "action": "explore",
                             "result": {"port": ship["location"], "reward": discovery_reward,
                                        "discovery": find["title"],
+                                       "survey_unlock": find.get("survey_unlock"),
                                        "artifact": artifact["title"] if artifact else None}})
                     route = ship.get("auto_route")
                     if route and route.get("status") == "running" and first_visit:
@@ -2661,13 +2876,20 @@ class Game:
         if service not in available:
             raise GameError(f"{self.location} does not have a {service} service")
 
-    def _available(self, *, maintenance: bool = False) -> None:
+    def _available(self, *, maintenance: bool = False,
+                   allow_hostile_planet: bool = False) -> None:
         if not self.active_ship_id:
             raise GameError("no surviving ship; purchase a replacement to continue")
         if self.ship["destination"] is not None:
             raise GameError("ship is in transit")
         if self.ship.get("radio_mission"):
             raise GameError("ship is assigned to a radio mission")
+        site = self.ports.get(self.location, {})
+        atmosphere = site.get("atmosphere")
+        if (not allow_hostile_planet and site.get("entity_type") == "planet" and
+                atmosphere in ("toxic", "corrosive") and
+                "life_support" not in self.ship.get("equipment", [])):
+            raise GameError(f"{self.location} has a {atmosphere} atmosphere; install Advanced Life Support to interact here")
         route_status = self.ship.get("auto_route", {}).get("status")
         if (route_status in ("running", "paused") and not getattr(self, "_auto_working", False)
                 and not (maintenance and route_status == "paused")):
@@ -2805,6 +3027,8 @@ class Game:
                 result = self._resolve_encounter(**kwargs)
             elif action == "resolve_local_encounter":
                 result = self._resolve_local_encounter(**kwargs)
+            elif action == "resolve_transit_encounter":
+                result = self._resolve_transit_encounter(**kwargs)
             elif action == "upgrade_haven":
                 result = self._upgrade_haven(**kwargs)
             elif action == "fulfill_haven_order":
@@ -2880,7 +3104,7 @@ class Game:
                 "warehouse": self.export_warehouse[good]}
 
     def _travel(self, destination: str, pirate_stance: str = "pay") -> dict:
-        self._available()
+        self._available(allow_hostile_planet=True)
         if self.ship.get("class_id") == "carrier":
             raise GameError("carriers relocate from the map and burn delivered bulk propellant")
         if destination not in self.ports or destination == self.location:
@@ -2912,7 +3136,7 @@ class Game:
             fuel_cost = max(1, base_fuel // 2)
         else:
             fuel_cost = base_fuel * 3
-        fuel_cost += (4 if blocked else 0) + (2 if risk["kind"] == "pirates" and pirate_stance == "evade" else 0)
+        fuel_cost += 4 if blocked else 0
         pilot = self.crew_member(self.active_ship_id, "pilot")
         engineer = self.crew_member(self.active_ship_id, "engineer")
         if pilot:
@@ -2931,40 +3155,10 @@ class Game:
             mitigation += engineer["level"] * 2
         if risk["kind"] == "pirates":
             pirate_key = self._pirate_route_key(self.location, destination)
-            strength = self.pirate_groups.setdefault(pirate_key, risk.get("strength", 6))
-            risk = {**risk, "strength": strength, "strength_remaining": strength}
-            weapon_count = equipment.count("weapons")
-            if pirate_stance == "evade":
-                mitigation += 2 - min(6, weapon_count * 2)
-                risk = {**risk, "outcome": "Evaded pirates · group remains on this route"
-                        + (" · heavy weapon load made escape harder" if weapon_count else "")}
-            elif pirate_stance == "fight":
-                damage_to_pirates = 1 + weapon_count * 2
-                strength = max(0, strength - damage_to_pirates)
-                self.pirate_groups[pirate_key] = strength
-                outcome = ("Pirates driven from this route" if strength == 0 else
-                           f"Pirate group weakened · {strength} strength remains")
-                risk = {**risk, "strength_remaining": strength,
-                        "route_cleared": strength == 0, "outcome": outcome}
-                mitigation += (7 if "defense" in equipment else 0) + min(5, self.factions.get("security", 0) // 3)
-                mitigation += min(8, weapon_count * 2)
-                self.factions["security"] += 1
-            if "defense" not in equipment and (pirate_stance == "evade" or
-                    (pirate_stance in ("fight", "pay") and not weapon_count)):
-                risk = {**risk, "damage": risk["damage"] + 5 +
-                        (min(6, weapon_count * 2) if pirate_stance == "evade" else 0)}
-        hazard_damage = max(0, risk["damage"] - mitigation)
+            self.pirate_groups.setdefault(pirate_key, risk.get("strength", 6))
+        hazard_damage = 0 if risk["kind"] == "pirates" else max(0, risk["damage"] - mitigation)
         wear = max(1, distance - (engineer["level"] if engineer else 0))
         self.ship["condition"] = max(0, self.ship["condition"] - wear - hazard_damage)
-        if risk["kind"] == "pirates" and pirate_stance == "pay":
-            # A capped pirate toll makes a dangerous route matter without
-            # deleting a reserved cargo manifest or creating a dead-end.
-            toll = min(self.credits, max(0, 10 + distance * 3 - self.factions.get("pirates", 0) * 2))
-            if "pirate_codes" in self.faction_perks:
-                toll //= 2
-            self.credits -= toll
-            risk = {**risk, "toll": toll}
-            self.factions["pirates"] += 1
         if blocked:
             risk = {**risk, "navigator_bypass": True}
         speed = max(1, int(self.ship.get("speed", 1)) + (1 if pilot and pilot["level"] >= 2 else 0))
@@ -2978,6 +3172,49 @@ class Game:
         self.ship["departed_at"] = arrival_at - travel_seconds
         self.ship["travel_seconds"] = travel_seconds
         self.ship["origin_port"] = self.location
+        self.ship.pop("flight_encounter", None)
+        self.ship["flight_encounters"] = []
+        if self.ship.get("galaxy", "home") == "home" and not carrier_route:
+            route_seed = (self.seed * 1_000_003 + self.tick * 97 + len(self.journal) * 31 +
+                          list(self.ports).index(destination) * 17 + len(self.completed_commands))
+            route_rng = random.Random(route_seed)
+            encounter_number = 0
+            if risk["kind"] == "pirates":
+                pirate_key = self._pirate_route_key(self.location, destination)
+                strength = self.pirate_groups.setdefault(pirate_key, risk.get("strength", 6))
+                if strength > 0:
+                    contact_count = 2 if route_rng.random() < .06 else 1
+                    progress_points = sorted(route_rng.uniform(.2, .8) for _ in range(contact_count))
+                    for progress in progress_points:
+                        encounter_number += 1
+                        self.ship["flight_encounters"].append({
+                            "kind": "pirates", "title": "Pirate Intercept",
+                            "description": "A raider wing drops out of the traffic shadow and moves to intercept.",
+                            "choices": [{"id": "fight", "label": "Fight"},
+                                        {"id": "evade", "label": "Evade", "fuel": 2},
+                                        {"id": "pay", "label": "Pay toll"}],
+                            "strength": strength, "risk": deepcopy(risk),
+                            "pirate_key": pirate_key, "distance": distance,
+                            "id": f"transit-{self.active_ship_id}-{self.tick}-{len(self.journal)}-{encounter_number}",
+                            "source": "transit", "status": "scheduled", "progress": progress,
+                            "trigger_at": self.ship["departed_at"] + travel_seconds * progress,
+                            "origin": self.location, "destination": destination})
+            generic_chance = .05 if self.ship["flight_encounters"] else .12
+            if len(self.ship["flight_encounters"]) < 2 and route_rng.random() < generic_chance:
+                ordinary_templates = [template for template in TRANSIT_ENCOUNTER_TEMPLATES
+                                      if template["kind"] != "derelict_trap"]
+                event = deepcopy(ordinary_templates[route_rng.randrange(len(ordinary_templates))])
+                if event["kind"] == "derelict" and route_rng.random() < .18:
+                    event = deepcopy(next(template for template in TRANSIT_ENCOUNTER_TEMPLATES
+                                          if template["kind"] == "derelict_trap"))
+                progress = route_rng.uniform(.2, .8)
+                encounter_number += 1
+                self.ship["flight_encounters"].append({**event,
+                    "id": f"transit-{self.active_ship_id}-{self.tick}-{len(self.journal)}-{encounter_number}",
+                    "source": "transit", "status": "scheduled", "progress": progress,
+                    "trigger_at": self.ship["departed_at"] + travel_seconds * progress,
+                    "origin": self.location, "destination": destination})
+            self.ship["flight_encounters"].sort(key=lambda event: event["trigger_at"])
         self.award_crew_experience(self.active_ship_id, "pilot", 1)
         self.award_crew_experience(self.active_ship_id, "engineer", 1)
         return {"destination": destination, "arrival_tick": self.tick,

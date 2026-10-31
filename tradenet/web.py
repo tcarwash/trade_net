@@ -381,8 +381,10 @@ class App:
     def _eligible_radio_modes(self, advertised):
         ship = self.game.ship
         tier = int(ship.get("modem_tier", 0))
-        modes = [mode for mode in modems.eligible_modes(advertised, tier)
-                 if "ack" not in mode["mode_id"].lower()]
+        modes = modems.unlocked_modes(
+            [mode for mode in modems.eligible_modes(advertised, tier)
+             if "ack" not in mode["mode_id"].lower()],
+            self.game.radio_unlocks)
         class_id = ship.get("class_id")
         if class_id:
             modes = modems.eligible_ship_modes(modes, class_id)
@@ -920,11 +922,15 @@ class App:
         local_arrival_due = any(ship.get("destination") and ship.get("arrival_at") is not None
                                 and now >= ship["arrival_at"]
                                 for ship in self.game.fleet.values())
-        if local_arrival_due:
+        transit_encounter_due = any(ship.get("destination") and ship.get("flight_encounters") and
+            ship["flight_encounters"][0].get("status") == "scheduled" and
+            now >= ship["flight_encounters"][0].get("trigger_at", float("inf"))
+            for ship in self.game.fleet.values())
+        if local_arrival_due or transit_encounter_due:
             self.game._all_arrivals()
         if first or results["local"]["advanced"]:
             self.persist()
-        elif local_arrival_due:
+        elif local_arrival_due or transit_encounter_due:
             self.persist()
         return results
 
@@ -998,6 +1004,14 @@ class App:
                 "dispatch_signals": [{**deepcopy(event), "transport": "local_simulation",
                     "transmit": False} for event in self.game.active_sector_events()],
                 "modem_catalog": deepcopy(self.modem_catalog),
+                "radio_unlocks": list(self.game.radio_unlocks),
+                "radio_profiles": ([{"id": profile, "label": label}
+                    for profile, label in modems.SURVEY_BEACON_PROFILES] + [
+                    {"id": profile, "label": profile.upper().replace("-", " · ")}
+                    for profile in modems.STARTING_RADIO_PROFILES]),
+                "radio_mode_profiles": {mode.get("mode_id"): modems.radio_profile_key(mode)
+                    for mode in self.modem_catalog.get("modes", [])
+                    if mode.get("mode_id")},
                 "radio_transmissions": [{**{key: deepcopy(value) for key, value in job.items()
                                             if key not in ("payload_hex", "repair_indices")},
                     "remaining_seconds": max(0, math.ceil(job["timeout_at"] - time.time()))
@@ -1056,13 +1070,13 @@ class App:
                 with Data2GClient(host, command_port, kiss_port) as modem:
                     modem.open_group(group, self.callsign)
                     available = [vars(mode) for mode in modem.modes()]
-                    modes = [mode for mode in modems.eligible_modes(available, 0)
-                             if "ack" not in mode["mode_id"].lower()]
+                    modes = self._eligible_radio_modes(available)
                     selected = next((mode for mode in modes if mode["mode_id"] == mode_id), None)
                     if (not selected or selected["bytes_per_codeword"] *
                             selected["max_codewords"] < len(payload)):
                         raise GameError("selected mode cannot carry this compact beacon")
-                    self._send_radio_frames(modem, payload, mode_id, 0)
+                    self._send_radio_frames(modem, payload, mode_id,
+                                            int(self.game.ship.get("modem_tier", 0)))
                 self.beacon_last_tx = {"sent_at": time.time(), "good": good,
                                        "contract_id": contract_id, "bytes": len(payload)}
                 result = {**decoded, "status": "sent", "mode_id": mode_id}
@@ -1334,6 +1348,10 @@ def serve(host="127.0.0.1", port=8765, save="galaxy.json", seed=42, callsign="AG
                       "/icon-512.png": ("icon-512.png", "image/png"),
                       "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"),
                       "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json")}
+            planet_sprites = ("temperate", "desert", "ringed", "ice", "volcanic", "lush")
+            assets.update({f"/assets/planets/{name}-{variant}.png":
+                           (f"assets/planets/{name}-{variant}.png", "image/png")
+                           for name in planet_sprites for variant in range(16)})
             if self.path not in assets:
                 self.send_error(404)
                 return

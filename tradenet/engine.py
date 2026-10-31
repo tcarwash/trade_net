@@ -36,7 +36,9 @@ PORT_NAMES = ("Haven", "Kepler", "Vesper", "Prospect", "Meridian",
 PORT_ROLES = ("Home hub", "Refinery", "Research enclave", "Mining colony",
               "Trade exchange", "Industrial furnace", "Medical sanctuary",
               "Salvage outpost", "Fortress station", "Frontier observatory")
-EQUIPMENT = {"scanner": 220, "shield": 350, "navigator": 420, "defense": 380}
+EQUIPMENT = {"scanner": 220, "shield": 350, "navigator": 420, "defense": 380,
+             "weapons": 650}
+EQUIPMENT_CARGO_SPACE = {"weapons": 4}
 CREW_ROLES = {
     "pilot": {"name": "Pilot", "effect": "Save 1 fuel per skill level on local flights; veterans fly faster"},
     "engineer": {"name": "Engineer", "effect": "Reduce local flight damage and repair costs"},
@@ -352,6 +354,7 @@ class Game:
     warehouse_targets: dict = field(default_factory=dict)
     fleet_credit_reserve: int = 350
     next_warehouse_dispatch_tick: int = 0
+    pirate_groups: dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self):
         if not self.galaxies:
@@ -377,7 +380,7 @@ class Game:
             ship.setdefault("galaxy", "home")
             ship.setdefault("export_cargo", {})
             ship.setdefault("equipment", [])
-            ship.setdefault("fleet_policy", {"return_to_haven": True, "auto_service": False,
+            ship.setdefault("fleet_policy", {"return_to_haven": False, "auto_service": False,
                           "repair_below": 65, "fuel_below": 35})
             ship.setdefault("captain_id", None)
         # Crew are recorded once on the roster, not duplicated inside each
@@ -1122,8 +1125,11 @@ class Game:
         self._available()
         if item not in EQUIPMENT:
             raise GameError("unknown ship equipment")
-        if item in self.ship.setdefault("equipment", []):
+        if item != "weapons" and item in self.ship.setdefault("equipment", []):
             raise GameError("ship already has this equipment")
+        space = EQUIPMENT_CARGO_SPACE.get(item, 0)
+        if self.cargo_used() + self.incoming_reserved + space > self.ship["capacity"]:
+            raise GameError(f"{item} needs {space} free cargo units")
         if self.credits < EQUIPMENT[item]:
             raise GameError("insufficient credits for equipment")
         self.credits -= EQUIPMENT[item]
@@ -1236,7 +1242,7 @@ class Game:
                     "destination": None, "arrival_tick": None, "modem_tier": 0,
                     "speed": 1, "location": "Haven", "galaxy": "home",
                     "export_cargo": {}, "equipment": [], "captain_id": None,
-                    "fleet_policy": {"return_to_haven": True, "auto_service": False,
+                    "fleet_policy": {"return_to_haven": False, "auto_service": False,
                                       "repair_below": 65, "fuel_below": 35},
                     "cargo": {good: 0 for good in GOODS}}
                 self.active_ship_id = ship_id
@@ -1324,17 +1330,37 @@ class Game:
         return {"job_id": job_id, "status": "cancelled"}
 
     def route_risk(self, origin: str, destination: str) -> dict:
-        """Deterministic, previewable terrain for each route and market tick."""
+        """Deterministic, previewable risk for charted corridors and direct courses."""
         if origin not in self.ports or destination not in self.ports:
             raise GameError("invalid route")
         a, b = sorted((list(self.ports).index(origin), list(self.ports).index(destination)))
         distance = abs(self.ports[origin]["distance"] - self.ports[destination]["distance"])
-        signature = (a * 19 + b * 31 + self.seed + self.tick // 3) % 11
-        if distance >= 3 and signature in (0, 1, 2, 3):
-            return {"kind": "gas", "label": "Ionized gas cloud", "damage": 4 + distance // 2}
-        if distance >= 2 and signature in (4, 5, 6):
-            return {"kind": "pirates", "label": "Pirate interception", "damage": 3 + distance // 3}
+        direct = not self.route_connected(origin, destination)
+        signature = (a * 19 + b * 31 + self.seed + self.tick // (1 if direct else 3)) % 11
+        key = self._pirate_route_key(origin, destination)
+        strength = self.pirate_groups.get(key)
+        if strength is not None and strength > 0:
+            return {"kind": "pirates", "label": "Pirate interception",
+                    "damage": 3 + distance // 3, "strength": strength}
+        pirates_possible = strength is None
+        strength = 6 + min(4, distance // 2)
+        if direct:
+            if pirates_possible and signature in (0, 2, 4, 6):
+                return {"kind": "pirates", "label": "Pirate interception",
+                        "damage": 3 + distance // 3, "strength": strength}
+            if distance >= 3 and signature in (1, 3, 5, 7):
+                return {"kind": "gas", "label": "Ionized gas cloud", "damage": 4 + distance // 2}
+        else:
+            if distance >= 3 and signature in (0, 1, 2, 3):
+                return {"kind": "gas", "label": "Ionized gas cloud", "damage": 4 + distance // 2}
+            if pirates_possible and distance >= 2 and signature in (4, 5):
+                return {"kind": "pirates", "label": "Pirate interception",
+                        "damage": 3 + distance // 3, "strength": strength}
         return {"kind": "clear", "label": "Clear corridor", "damage": 0}
+
+    @staticmethod
+    def _pirate_route_key(origin: str, destination: str) -> str:
+        return "|".join(sorted((origin, destination)))
 
     def blocked_port(self, now: float | None = None) -> str:
         """Cycle the blockade across Haven's direct routes every two game ticks."""
@@ -1896,7 +1922,7 @@ class Game:
             raise GameError("both ships must be docked together at the current port")
         if source["cargo"].get(good, 0) < amount:
             raise GameError("source hold lacks that cargo")
-        if sum(target["cargo"].values()) + amount > target["capacity"]:
+        if self.cargo_used(target) + amount > target["capacity"]:
             raise GameError("destination hold has insufficient space")
         eligible = min(amount, source.get("export_cargo", {}).get(good, 0))
         source["cargo"][good] -= amount
@@ -1959,7 +1985,7 @@ class Game:
                     continue
                 def depart():
                     risk = self.route_risk(self.location, port)
-                    if self.asteroid_field_blocks(self.location, port):
+                    if self.route_connected(self.location, port) and self.asteroid_field_blocks(self.location, port):
                         self._pause_auto_route(ship, "blocked", f"Asteroid field obstructs {port}; try again when it moves")
                         return
                     if risk["kind"] != "clear":
@@ -2099,7 +2125,7 @@ class Game:
             idle.sort(key=lambda ship: (not bool(ship.get("captain_id")),
                                          ship["location"] != source, -ship["condition"], ship["id"]))
             for ship in idle:
-                quantity = min(needed, policy["quantity"], ship["capacity"],
+                quantity = min(needed, policy["quantity"], ship["capacity"] - self.cargo_used(ship),
                                self.haven_warehouse_capacity() - sum(self.export_warehouse.values()) - pending)
                 if quantity < 1 or quote * quantity > self.credits - self.fleet_credit_reserve:
                     continue
@@ -2112,20 +2138,21 @@ class Game:
                 return
 
     def _gather_idle_ships(self) -> None:
-        """Park unused, unselected home-galaxy vessels at Haven when safe.
+        """Return opted-in, unused home-galaxy vessels to Haven when safe.
 
         No radio traffic is involved. We never take over the selected vessel,
         interrupt an assignment, or commit to a hazardous approach unaided.
         """
         for ship_id, ship in self.fleet.items():
-            if (ship_id == self.active_ship_id or not ship.get("fleet_policy", {}).get("return_to_haven", True)
+            if (ship_id == self.active_ship_id or not ship.get("fleet_policy", {}).get("return_to_haven", False)
                     or ship.get("galaxy", "home") != "home"
                     or ship.get("location") == "Haven" or ship.get("destination")
                     or ship.get("radio_mission") or ship.get("vip_job")
                     or ship.get("voyage") or any(ship["cargo"].values())
                     or ship.get("auto_route", {}).get("status") in ("running", "paused")
                     or ship.get("condition", 0) < 10
-                    or self.asteroid_field_blocks(ship.get("location", "Haven"), "Haven")
+                    or (self.route_connected(ship.get("location", "Haven"), "Haven")
+                        and self.asteroid_field_blocks(ship.get("location", "Haven"), "Haven"))
                     or self.route_risk(ship["location"], "Haven")["kind"] != "clear"):
                 continue
             try:
@@ -2151,7 +2178,7 @@ class Game:
             raise GameError("autopilot needs an empty ship docked in the home galaxy with no passenger")
         if kind not in ("trade", "supply") or (kind == "supply" and (origin == "Haven" or destination != "Haven")):
             raise GameError("Haven procurement must source imports outside Haven and return to the export warehouse")
-        if quantity > ship["capacity"]:
+        if quantity > ship["capacity"] - self.cargo_used(ship):
             raise GameError("consignment exceeds this ship's hold")
         if ship.get("auto_route", {}).get("status") in ("running", "paused"):
             raise GameError("stop the current route before planning another")
@@ -2180,7 +2207,7 @@ class Game:
                 and not ship.get("radio_mission") and not ship.get("voyage") and not ship.get("vip_job")
                 and not any(ship["cargo"].values())
                 and ship.get("auto_route", {}).get("status") not in ("running", "paused")
-                and ship.get("capacity", 0) >= quantity]
+                and ship.get("capacity", 0) - self.cargo_used(ship) >= quantity]
         if not idle:
             raise GameError("no idle home-galaxy vessel with an empty hold and enough capacity")
         idle.sort(key=lambda ship: (ship["id"] == self.active_ship_id,
@@ -2266,7 +2293,7 @@ class Game:
                                "galaxy": self.ship.get("galaxy", "home"),
                                "export_cargo": {}, "equipment": [],
                                "captain_id": None,
-                               "fleet_policy": {"return_to_haven": True,
+                               "fleet_policy": {"return_to_haven": False,
                                                 "auto_service": False,
                                                 "repair_below": 65,
                                                 "fuel_below": 35},
@@ -2410,8 +2437,12 @@ class Game:
                 and not (maintenance and route_status == "paused")):
             raise GameError("pause the trade autopilot for repairs and refueling, or stop it to command this ship manually")
 
-    def cargo_used(self) -> int:
-        return sum(self.cargo.values())
+    def cargo_used(self, ship: dict | None = None) -> int:
+        ship = ship or self.ship
+        goods = sum(ship.get("cargo", {}).values())
+        installed = sum(EQUIPMENT_CARGO_SPACE.get(item, 0)
+                        for item in ship.get("equipment", []))
+        return goods + installed
 
     def command(self, command_id: str, action: str, **kwargs) -> dict:
         """Execute once. Repeated IDs return their original result without side effects."""
@@ -2619,7 +2650,8 @@ class Game:
         if pirate_stance not in ("pay", "evade", "fight"):
             raise GameError("invalid pirate strategy")
         equipment = self.ship.get("equipment", [])
-        blocked = self.asteroid_field_blocks(self.location, destination)
+        blocked = (self.route_connected(self.location, destination) and
+                   self.asteroid_field_blocks(self.location, destination))
         if blocked and "navigator" not in equipment:
             raise GameError(f"Asteroid field blocks the direct approach to {destination}; wait for the field to orbit onward")
         distance = abs(self.ports[destination]["distance"] -
@@ -2628,8 +2660,8 @@ class Game:
         # Distances are already expressed in map hops; charge one unit per
         # hop, with charted routes retaining their half-cost advantage.
         base_fuel = max(1, distance)
-        fuel_cost = (max(1, base_fuel // 2) if self.route_connected(self.location, destination)
-                     else base_fuel)
+        connected = self.route_connected(self.location, destination)
+        fuel_cost = max(1, base_fuel // 2) if connected else base_fuel * 2
         fuel_cost += (4 if blocked else 0) + (2 if risk["kind"] == "pirates" and pirate_stance == "evade" else 0)
         pilot = self.crew_member(self.active_ship_id, "pilot")
         engineer = self.crew_member(self.active_ship_id, "engineer")
@@ -2648,14 +2680,29 @@ class Game:
         if engineer:
             mitigation += engineer["level"] * 2
         if risk["kind"] == "pirates":
+            pirate_key = self._pirate_route_key(self.location, destination)
+            strength = self.pirate_groups.setdefault(pirate_key, risk.get("strength", 6))
+            risk = {**risk, "strength": strength, "strength_remaining": strength}
+            weapon_count = equipment.count("weapons")
             if pirate_stance == "evade":
-                mitigation += 2
-                risk = {**risk, "outcome": "Evaded pirates using extra fuel"}
+                mitigation += 2 - min(6, weapon_count * 2)
+                risk = {**risk, "outcome": "Evaded pirates · group remains on this route"
+                        + (" · heavy weapon load made escape harder" if weapon_count else "")}
             elif pirate_stance == "fight":
+                damage_to_pirates = 1 + weapon_count * 2
+                strength = max(0, strength - damage_to_pirates)
+                self.pirate_groups[pirate_key] = strength
+                outcome = ("Pirates driven from this route" if strength == 0 else
+                           f"Pirate group weakened · {strength} strength remains")
+                risk = {**risk, "strength_remaining": strength,
+                        "route_cleared": strength == 0, "outcome": outcome}
                 mitigation += (7 if "defense" in equipment else 0) + min(5, self.factions.get("security", 0) // 3)
-                risk = {**risk, "damage": risk["damage"] + (0 if "defense" in equipment else 5),
-                        "outcome": "Pirates repelled" if "defense" in equipment else "Hard-fought escape"}
+                mitigation += min(8, weapon_count * 2)
                 self.factions["security"] += 1
+            if "defense" not in equipment and (pirate_stance == "evade" or
+                    (pirate_stance in ("fight", "pay") and not weapon_count)):
+                risk = {**risk, "damage": risk["damage"] + 5 +
+                        (min(6, weapon_count * 2) if pirate_stance == "evade" else 0)}
         hazard_damage = max(0, risk["damage"] - mitigation)
         wear = max(1, distance - (engineer["level"] if engineer else 0))
         self.ship["condition"] = max(0, self.ship["condition"] - wear - hazard_damage)
@@ -2671,7 +2718,9 @@ class Game:
         if blocked:
             risk = {**risk, "navigator_bypass": True}
         speed = max(1, int(self.ship.get("speed", 1)) + (1 if pilot and pilot["level"] >= 2 else 0))
-        travel_seconds = min(10, max(1, math.ceil(distance * 2 / speed)))
+        # Give every flight a short launch/transit window so ships feel like
+        # separate assets, while retaining a clear speed advantage on longer hops.
+        travel_seconds = min(30, max(3, 2 + math.ceil(distance * 3 / speed)))
         arrival_at = time.time() + travel_seconds
         self.ship["destination"] = destination
         self.ship["arrival_tick"] = None

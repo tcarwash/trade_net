@@ -18,7 +18,7 @@ from copy import deepcopy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .engine import Game, GameError, GOODS, RARE, BASE_PRICE, HAVEN_FACILITIES, CREW_ROLES, LOAN_PLANS, ARTIFACT_CATALOG, ARTIFACT_TYPES
+from .engine import Game, GameError, GOODS, RARE, BASE_PRICE, HAVEN_FACILITIES, CREW_ROLES, LOAN_PLANS, ARTIFACT_CATALOG, ARTIFACT_TYPES, EQUIPMENT_CARGO_SPACE
 from .network import Network
 from . import modems
 from .data2g import Data2GClient, Data2GError
@@ -981,6 +981,7 @@ class App:
         game_state["contracts"] = {}  # Archived simulated NPC freight is not live demand.
         game_state.pop("radio_state", None)  # Radio ledgers have their own bounded projection.
         return {"game": game_state, "save_id": self.save_id, "network": {"local_id": self.callsign},
+                "equipment_cargo_space": EQUIPMENT_CARGO_SPACE,
                 "navigation": self._navigation(),
                 "ship_classes": deepcopy(list(getattr(modems, "SHIPS", ()))),
                 "story_objective": self.game.story_objective(),

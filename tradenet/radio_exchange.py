@@ -151,7 +151,7 @@ def profile(game: Game) -> dict:
 
 def generate_contracts(game: Game, station: str, serial: int = 1,
                        existing: list[dict] | None = None, count: int = 3):
-    """Generate hub demand from local inventories and replenishment rates."""
+    """Keep a galaxy-identity contract open alongside rotating local demand."""
     contracts = deepcopy(existing or [])
     for item in contracts:
         suffix = item.get("id", "").rsplit("C", 1)[-1]
@@ -159,6 +159,24 @@ def generate_contracts(game: Game, station: str, serial: int = 1,
             serial = max(serial, int(suffix) + 1)
     occupied = {(item.get("good"), item.get("status", "open"))
                 for item in contracts if item.get("status", "open") == "open"}
+    abundance = game.specialization if game.specialization in RARE else RARE[0]
+    if not any(item.get("kind") == "abundance" and item.get("status", "open") == "open"
+               for item in contracts):
+        contract_id = f"{station}-C{serial:04d}"
+        contracts.append({"id": contract_id, "issuer": station, "good": abundance,
+                          "quantity": 12, "status": "open", "kind": "abundance"})
+        serial += 1
+        occupied.add((abundance, "open"))
+    if not any(item.get("kind") == "galaxy_project" and item.get("status", "open") == "open"
+               for item in contracts):
+        project_good = abundance
+        project_requirements = {good: 6 for good in RARE}
+        contract_id = f"{station}-C{serial:04d}"
+        contracts.append({"id": contract_id, "issuer": station, "good": project_good,
+                          "quantity": project_requirements[project_good], "status": "open",
+                          "kind": "galaxy_project", "requirements": project_requirements})
+        serial += 1
+        occupied.add((project_good, "open"))
     while sum(item.get("status", "open") == "open" for item in contracts) < count:
         candidates = []
         for good in GOODS:
@@ -231,7 +249,10 @@ def read_contracts(items, issuer: str):
                     requirements.get(item[1]) != item[2]):
                 continue
             contract["requirements"] = requirements
-            contract["kind"] = "longhaul"
+            # A manifest for all three rare goods is a galaxy project, not a
+            # routine long-haul. This survives the compact radio wire format.
+            contract["kind"] = ("galaxy_project" if set(requirements) == set(RARE)
+                                else "longhaul")
         result.append(contract)
     return result
 

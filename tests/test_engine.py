@@ -6,6 +6,40 @@ from tradenet import Game, GameError
 
 
 class EconomyTests(unittest.TestCase):
+    def test_dockside_shift_rescues_empty_credit_and_fuel_state(self):
+        game = Game.new(42)
+        game.credits = 0
+        game.ship['fuel'] = 0
+        result = game.command('shift-one', 'dockside_shift')
+        self.assertEqual(result['credits'], 75)
+        self.assertEqual(game.credits, 75)
+        with self.assertRaises(GameError):
+            game.command('shift-two', 'dockside_shift')
+
+    def test_emergency_refuel_works_when_port_market_is_empty(self):
+        game = Game.new(42)
+        game.ship['location'] = 'Kepler'
+        game._bind_ship()
+        game.ship['fuel'] = 2
+        game.credits = 500
+        game.ports['Kepler']['stock']['fuel'] = 0
+        result = game.command('reserve-fuel', 'emergency_refuel', amount=3)
+        self.assertEqual(result['fuel'], 5)
+        self.assertEqual(result['cost'], game.price('Kepler', 'fuel', 'buy') * 6)
+        self.assertEqual(game.ports['Kepler']['stock']['fuel'], 0)
+
+    def test_can_resell_installed_gear_and_idle_ship_safely(self):
+        game = Game.new(42)
+        game.command('buy-gear', 'buy_equipment', item='scanner')
+        payout = game.command('sell-gear', 'sell_equipment', item='scanner')
+        self.assertEqual(payout['credits'], 110)
+        purchased = game.command('buy-second', 'purchase_ship', tier=1)
+        ship_id = purchased['ship_id']
+        sale = game.command('sell-second', 'sell_ship', ship_id=ship_id)
+        self.assertEqual(sale['credits'], 450)
+        with self.assertRaises(GameError):
+            game.command('sell-last', 'sell_ship', ship_id='ship-1')
+
     def test_realtime_flight_progress_metadata_survives_reload_and_clears(self):
         from unittest.mock import patch
         game = Game.new(42)
@@ -139,15 +173,18 @@ class EconomyTests(unittest.TestCase):
         self.assertEqual(game.price_memory['food']['lowest_buy']['price'], remembered)
         self.assertEqual(Game.from_dict(game.to_dict()).price_memory['food']['lowest_buy']['price'], remembered)
 
-    def test_orbiting_asteroid_field_blocks_one_destination(self):
-        from unittest.mock import patch
+    def test_orbiting_asteroid_field_blocks_one_outbound_route_for_two_ticks(self):
         game = Game.new(42)
-        with patch('tradenet.engine.time.time', return_value=9000):
-            blocked = game.blocked_port()
-            self.assertNotEqual(game.blocked_port(9090), blocked)
-            if blocked != game.location:
-                with self.assertRaisesRegex(GameError, 'Asteroid field'):
-                    game.command('blocked', 'travel', destination=blocked)
+        blocked = game.blocked_port()
+        self.assertNotEqual(blocked, 'Haven')
+        game.tick += 1
+        self.assertEqual(game.blocked_port(), blocked)
+        game.tick += 1
+        self.assertNotEqual(game.blocked_port(), blocked)
+        if blocked != game.location:
+            game.tick -= 2
+            with self.assertRaisesRegex(GameError, 'Asteroid field'):
+                game.command('blocked', 'travel', destination=blocked)
             safe = next(port for port in game.ports if port not in (game.location, blocked))
             self.assertEqual(game.command('safe', 'travel', destination=safe)['destination'], safe)
 

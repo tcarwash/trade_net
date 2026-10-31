@@ -32,6 +32,19 @@ class MailCancelTests(unittest.TestCase):
 
 
 class AbortTests(unittest.TestCase):
+    def test_abort_radio_mission_stops_retries_and_unlocks_ship(self):
+        ship = self.app.game.ship
+        job = {"id": "radio-active", "message_id": "contact-1", "purpose": "contact",
+               "status": "awaiting_ack", "ship_id": ship["id"], "destination": "K7OR",
+               "timeout_at": 9999999999, "payload_hash": "abcd"}
+        self.app.radio_transmissions[job["id"]] = job
+        ship["radio_mission"] = job["id"]
+        result = self.app.execute({"action": "abort_radio_mission", "job_id": job["id"]})
+        self.assertEqual(result["status"], "cancelled")
+        self.assertEqual(job["status"], "cancelled")
+        self.assertNotIn("radio_mission", ship)
+        self.assertEqual(ship["condition"], 100)
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)

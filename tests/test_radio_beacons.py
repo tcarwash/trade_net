@@ -69,7 +69,10 @@ class CompactBeaconTests(unittest.TestCase):
         self.assertEqual(result["status"], "sent")
         self.assertEqual(len(sent), 1)
         self.assertEqual(sent[0][1:], ("n4-quiet", 0))
-        self.assertEqual(radio_exchange.decode_beacon(sent[0][0])["callsign"], "AG7SU")
+        decoded = radio_exchange.decode_beacon(sent[0][0])
+        self.assertEqual(decoded["callsign"], "AG7SU")
+        self.assertEqual(decoded["good"], sender.game.specialization)
+        self.assertEqual(decoded["abundance"], 255)
         self.assertEqual(sender.game.ship["location"], "Kepler")
 
 

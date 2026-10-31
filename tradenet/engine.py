@@ -14,8 +14,23 @@ from .modems import TIERS
 
 GOODS = ("food", "ore", "fuel", "medicine", "aether", "iridium", "mycelium")
 RARE = ("aether", "iridium", "mycelium")
-BASE_PRICE = {"food": 12, "ore": 20, "fuel": 28, "medicine": 46,
+ARTIFACT_CATALOG = (
+    {"category": "echo", "name": "Relay echo crystal", "rarity": "common", "base_value": 180},
+    {"category": "chart", "name": "Precursor star chart", "rarity": "uncommon", "base_value": 260},
+    {"category": "glyph", "name": "Engraved signal glyph", "rarity": "uncommon", "base_value": 340},
+    {"category": "seed", "name": "Vacuum-grown seed", "rarity": "rare", "base_value": 460},
+    {"category": "lattice", "name": "Voidglass lattice", "rarity": "rare", "base_value": 580},
+    {"category": "memory", "name": "Mnemonic star core", "rarity": "relic", "base_value": 750},
+)
+ARTIFACT_TYPES = {item["category"]: item for item in ARTIFACT_CATALOG}
+BASE_PRICE = {"food": 12, "ore": 20, "fuel": 20, "medicine": 46,
               "aether": 180, "iridium": 220, "mycelium": 160}
+LOAN_PLANS = {
+    "emergency": {"name": "Emergency advance", "principal": 300,
+                  "interest_percent": 10, "installments": 6, "interval_ticks": 4},
+    "frontier": {"name": "Frontier expansion loan", "principal": 900,
+                 "interest_percent": 18, "installments": 9, "interval_ticks": 8},
+}
 PORT_NAMES = ("Haven", "Kepler", "Vesper", "Prospect", "Meridian",
               "Cinder", "Aurora", "Drift", "Bastion", "Eidolon")
 PORT_ROLES = ("Home hub", "Refinery", "Research enclave", "Mining colony",
@@ -173,6 +188,18 @@ HAVEN_FACILITIES = {
     "liaison": {"name": "Faction liaison", "max_level": 2, "credits": 300,
                 "good": "food", "quantity": 3,
                 "effect": "Private captain lots refresh four ticks sooner per level"},
+    "fuel_works": {"name": "Rare-fuel synthesis works", "max_level": 2, "credits": 650,
+                   "resources": "signature_pair_a", "quantity": 2,
+                   "effect": "+2 fuel production at Haven per level"},
+    "survey_archive": {"name": "Interstellar survey archive", "max_level": 2, "credits": 700,
+                       "resources": "signature_pair_b", "quantity": 2,
+                       "effect": "+25% first-visit discovery credits per level"},
+    "interstellar_relay": {"name": "Interstellar relay array", "max_level": 1, "credits": 2400,
+                            "resources": tuple(RARE), "quantity": 6,
+                            "effect": "+25% payout on verified cross-galaxy cargo deliveries"},
+    "grand_archive": {"name": "Haven Grand Archive", "max_level": 1, "credits": 2800,
+                      "resources": tuple(RARE), "quantity": 4, "archive_required": 10,
+                      "effect": "+50 cr for each new starport discovered; completes the artifact gallery"},
 }
 ENCOUNTER_SITES = {
     "Kepler": {"title": "The Drifting Tug", "description": "A silent cargo tug is transmitting a weak distress beacon.",
@@ -270,6 +297,8 @@ class Game:
     name: str
     tick: int = 0
     credits: int = 1800
+    loan: dict | None = None
+    bankruptcy_notice: dict | None = None
     location: str = "Haven"
     cargo: dict[str, int] = field(default_factory=dict)
     ports: dict = field(default_factory=dict)
@@ -298,6 +327,8 @@ class Game:
     factions: dict = field(default_factory=dict)
     story_stage: int = 0
     discoveries: dict = field(default_factory=dict)
+    artifact_inventory: dict = field(default_factory=dict)
+    artifact_history: dict = field(default_factory=dict)
     sector_events: list[dict] = field(default_factory=list)
     expeditions: dict = field(default_factory=dict)
     radio_bands_seen: list[str] = field(default_factory=list)
@@ -308,6 +339,7 @@ class Game:
     local_encounters: dict = field(default_factory=dict)
     faction_followups: dict = field(default_factory=dict)
     captain_deals: dict = field(default_factory=dict)
+    dockside_work_tick: int = -1
     faction_storylines: dict = field(default_factory=dict)
     faction_perks: list[str] = field(default_factory=list)
     captain_nemeses: list[str] = field(default_factory=list)
@@ -334,6 +366,7 @@ class Game:
                     self.galaxies["home"]["ports"][port] = deepcopy(expanded.ports[port])
             for i, port in enumerate(PORT_NAMES):
                 self.galaxies["home"]["ports"][port].setdefault("role", PORT_ROLES[i])
+        self._initialize_starport_graph()
         # Migrate version-one single-ship saves without changing their schema.
         if not self.fleet and self.active_ship_id:
             self.ship.setdefault("location", self.location)
@@ -390,6 +423,11 @@ class Game:
         self._refresh_faction_storylines()
         for port in self.visited_ports:
             self._reveal_encounter(port)
+        # Existing saves may already have reached the old chart's outer edge.
+        for port in list(self.visited_ports):
+            if port in self.galaxies.get("home", {}).get("ports", {}):
+                self._expand_starport_frontier(port)
+        self._enforce_open_delivery_shortages()
         self.observe_markets()
 
     def _refresh_sector_events(self):
@@ -438,6 +476,25 @@ class Game:
             if job.get("kind") != "dispatch":
                 job["status"] = "superseded"
                 open_jobs.remove(job)
+        self._enforce_open_delivery_shortages()
+
+    def _enforce_open_delivery_shortages(self) -> None:
+        """Keep posted freight demand larger than stock at its destination."""
+        limits = {}
+        for job in self.local_jobs.values():
+            if job.get("status") != "open":
+                continue
+            destination, good, quantity = (job.get("destination"), job.get("good"),
+                                           job.get("quantity"))
+            home_ports = self.galaxies.get("home", {}).get("ports", {})
+            if (destination not in home_ports or good not in GOODS or
+                    type(quantity) is not int or quantity < 1):
+                continue
+            key = (destination, good)
+            limits[key] = min(limits.get(key, quantity), quantity)
+        for (destination, good), quantity in limits.items():
+            stock = home_ports[destination]["stock"]
+            stock[good] = min(stock[good], quantity - 1)
 
     def active_sector_events(self) -> list[dict]:
         return [event for event in self.sector_events
@@ -519,6 +576,7 @@ class Game:
                 "tick": self.tick, "action": "followup_available",
                 "result": {"title": followup["title"], "captain": captain["name"],
                            "origin": captain["location"], "good": good}})
+        self._enforce_open_delivery_shortages()
 
     def _advance_npc_captains(self):
         """Advance named local haulers; stock is transferred, never generated.
@@ -744,6 +802,20 @@ class Game:
                                  "discovered_tick": self.tick}
         return True
 
+    def _collect_frontier_artifact(self, port: str) -> dict | None:
+        """Award one deterministic, unique collectible for a first discovery."""
+        if port in self.artifact_history or port not in self.ports:
+            return self.artifact_inventory.get(port)
+        index = list(self.ports).index(port)
+        template = ARTIFACT_CATALOG[(self.seed + index * 5) % len(ARTIFACT_CATALOG)]
+        artifact = {**template, "id": port,
+            "title": f"{template['name']} · {port}", "source_port": port,
+            "signature": self.specialization, "found_tick": self.tick,
+            "status": "held"}
+        self.artifact_inventory[port] = deepcopy(artifact)
+        self.artifact_history[port] = deepcopy(artifact)
+        return artifact
+
     def _resolve_encounter(self, port: str, choice: str) -> dict:
         """A site resolves exactly once, with physical ship costs and rewards."""
         self._available()
@@ -813,10 +885,29 @@ class Game:
         if not template:
             raise GameError("unknown Haven facility")
         level = self.haven_facilities.get(facility, 0)
+        resource_rule = template.get("resources")
+        if resource_rule == "signature_pair_a":
+            signature_index = RARE.index(self.specialization)
+            base_requirements = {self.specialization: template["quantity"],
+                                 RARE[(signature_index + 1) % len(RARE)]: template["quantity"]}
+        elif resource_rule == "signature_pair_b":
+            signature_index = RARE.index(self.specialization)
+            base_requirements = {self.specialization: template["quantity"],
+                                 RARE[(signature_index + 2) % len(RARE)]: template["quantity"]}
+        elif resource_rule:
+            base_requirements = {good: template["quantity"] for good in resource_rule}
+        else:
+            base_requirements = {template["good"]: template["quantity"]}
+        requirements = {good: amount * (level + 1)
+                        for good, amount in base_requirements.items()}
+        primary_good = next(iter(requirements))
         return {"facility": facility, "name": template["name"], "level": level,
                 "max_level": template["max_level"], "effect": template["effect"],
                 "credits": template["credits"] * (level + 1),
-                "good": template["good"], "quantity": template["quantity"] * (level + 1)}
+                "good": primary_good, "quantity": requirements[primary_good],
+                "requirements": requirements,
+                "archive_required": template.get("archive_required", 0),
+                "archive_count": len(self.artifact_history)}
 
     def _upgrade_haven(self, facility: str) -> dict:
         self._available()
@@ -825,21 +916,28 @@ class Game:
         quote = self.haven_upgrade_quote(facility)
         if quote["level"] >= quote["max_level"]:
             raise GameError("facility already at maximum level")
+        if len(self.artifact_history) < quote["archive_required"]:
+            raise GameError(f"catalog {quote['archive_required']} frontier artifacts before building this project")
         if self.credits < quote["credits"]:
             raise GameError("insufficient credits for this headquarters upgrade")
-        good, amount = quote["good"], quote["quantity"]
-        if (self.cargo.get(good, 0) < amount or
-                self.ship.get("export_cargo", {}).get(good, 0) < amount):
-            raise GameError(f"import {amount} {good} from a different starport to build this facility")
-        self.cargo[good] -= amount
-        self.ship["export_cargo"][good] -= amount
+        requirements = quote["requirements"]
+        for good, amount in requirements.items():
+            if (self.cargo.get(good, 0) < amount or
+                    self.ship.get("export_cargo", {}).get(good, 0) < amount):
+                raise GameError(f"import {amount} {good} from a different starport to build this facility")
+        for good, amount in requirements.items():
+            self.cargo[good] -= amount
+            self.ship["export_cargo"][good] -= amount
         self.credits -= quote["credits"]
         self.haven_facilities[facility] = quote["level"] + 1
         if facility == "logistics":
             self._refresh_haven_orders()
+        elif facility == "fuel_works":
+            self.ports["Haven"]["production"]["fuel"] += 2
         return {"facility": facility, "name": quote["name"],
                 "level": self.haven_facilities[facility], "credits_spent": quote["credits"],
-                "good": good, "quantity": amount, "effect": quote["effect"]}
+                "good": quote["good"], "quantity": quote["quantity"],
+                "requirements": requirements, "effect": quote["effect"]}
 
     def _fulfill_haven_order(self, order_id: str) -> dict:
         self._available()
@@ -966,7 +1064,8 @@ class Game:
 
     def _replenish_vip_jobs(self):
         for job in self.vip_jobs.values():
-            if job["status"] == "open" and self.tick > job["deadline"]:
+            if (job["status"] == "open" and job.get("kind") != "frontier_gate" and
+                    self.tick > job["deadline"]):
                 job["status"] = "expired"
         while sum(j["status"] == "open" for j in self.vip_jobs.values()) < 2:
             n = self.next_vip_number
@@ -1031,6 +1130,159 @@ class Game:
         self.ship["equipment"].append(item)
         return {"item": item, "cost": EQUIPMENT[item], "ship_id": self.active_ship_id}
 
+    def _dockside_shift(self) -> dict:
+        self._available(maintenance=True)
+        if self.dockside_work_tick == self.tick:
+            raise GameError("dockside shift already completed this economy tick")
+        payout = 75
+        self.credits += payout
+        self.dockside_work_tick = self.tick
+        return {"credits": payout, "balance": self.credits, "next_shift_tick": self.tick + 1}
+
+    def loan_quote(self, plan: str) -> dict:
+        terms = LOAN_PLANS.get(plan)
+        if not terms:
+            raise GameError("unknown loan plan")
+        total = terms["principal"] * (100 + terms["interest_percent"]) // 100
+        base, remainder = divmod(total, terms["installments"])
+        return {"plan": plan, **terms, "total_repayment": total,
+                "first_payment": base + (1 if remainder else 0)}
+
+    def _take_loan(self, plan: str) -> dict:
+        self._available(maintenance=True)
+        if self.loan and self.loan.get("balance", 0) > 0:
+            raise GameError("repay your current loan before taking another")
+        quote = self.loan_quote(plan)
+        terms = LOAN_PLANS[plan]
+        base, remainder = divmod(quote["total_repayment"], terms["installments"])
+        self.credits += terms["principal"]
+        self.bankruptcy_notice = None
+        self.loan = {"plan": plan, "name": terms["name"],
+            "principal": terms["principal"], "interest": quote["total_repayment"] - terms["principal"],
+            "interest_percent": terms["interest_percent"], "balance": quote["total_repayment"],
+            "installments_total": terms["installments"],
+            "installments_remaining": terms["installments"],
+            "installment_base": base, "extra_installments": remainder,
+            "due_payment": quote["first_payment"], "interval_ticks": terms["interval_ticks"],
+            "next_due_tick": self.tick + terms["interval_ticks"], "payments_made": 0,
+            "missed_payments": 0, "collateral_ship_id": self.active_ship_id}
+        return {"plan": plan, "name": terms["name"], "principal": terms["principal"],
+                "interest": self.loan["interest"], "total_repayment": self.loan["balance"],
+                "payment": self.loan["due_payment"],
+                "interval_ticks": self.loan["interval_ticks"], "credits": self.credits}
+
+    def _service_loan(self) -> int:
+        """Collect due installments and repossess collateral after repeated defaults."""
+        paid_total = 0
+        while self.loan and self.loan.get("balance", 0) > 0 and self.tick >= self.loan["next_due_tick"]:
+            if self.credits < self.loan["due_payment"]:
+                self.loan["missed_payments"] += 1
+                if self.loan["missed_payments"] >= 3:
+                    self._declare_loan_bankruptcy()
+                    break
+                self.loan["next_due_tick"] += self.loan["interval_ticks"]
+                continue
+            payment = self.loan["due_payment"]
+            self.credits -= payment
+            self.loan["balance"] -= payment
+            paid_total += payment
+            self.loan["missed_payments"] = 0
+            self.loan["payments_made"] += 1
+            self.loan["installments_remaining"] -= 1
+            if self.loan["balance"] <= 0:
+                self.loan = None
+                break
+            self.loan["due_payment"] = self.loan["installment_base"] + int(
+                self.loan["payments_made"] < self.loan["extra_installments"])
+            self.loan["next_due_tick"] += self.loan["interval_ticks"]
+        return paid_total
+
+    def _declare_loan_bankruptcy(self) -> None:
+        loan = self.loan
+        if not loan:
+            return
+        collateral_id = loan.get("collateral_ship_id")
+        collateral = self.fleet.get(collateral_id)
+        debt = loan["balance"]
+        sale_value = 0
+        if collateral:
+            class_id = collateral.get("class_id")
+            if class_id:
+                from .modems import SHIPS
+                hull_cost = next((item["cost"] for item in SHIPS if item["id"] == class_id), 350)
+            else:
+                hull_cost = (350, 900, 1800)[min(2, collateral.get("modem_tier", 0))]
+            sale_value = max(1, hull_cost // 2)
+            vip_job = collateral.get("vip_job")
+            if vip_job in self.vip_jobs:
+                self.vip_jobs[vip_job]["status"] = "lost"
+            for crew in self.crew_roster.values():
+                if crew.get("ship_id") == collateral_id:
+                    crew.update(ship_id=None, location=collateral.get("location", "Haven"),
+                                galaxy=collateral.get("galaxy", "home"))
+            self.fleet.pop(collateral_id, None)
+        forgiven = max(0, debt - sale_value)
+        recovered = min(debt, sale_value)
+        self.credits += max(0, sale_value - debt)
+        replacement = False
+        if collateral_id == self.active_ship_id:
+            if self.fleet:
+                self.active_ship_id = next(iter(self.fleet))
+            else:
+                ship_id = f"ship-{self.next_ship_number}"
+                self.next_ship_number += 1
+                self.fleet[ship_id] = {"id": ship_id, "name": "Wayfarer",
+                    "capacity": 30, "fuel": 40, "max_fuel": 40, "condition": 100,
+                    "destination": None, "arrival_tick": None, "modem_tier": 0,
+                    "speed": 1, "location": "Haven", "galaxy": "home",
+                    "export_cargo": {}, "equipment": [], "captain_id": None,
+                    "fleet_policy": {"return_to_haven": True, "auto_service": False,
+                                      "repair_below": 65, "fuel_below": 35},
+                    "cargo": {good: 0 for good in GOODS}}
+                self.active_ship_id = ship_id
+                replacement = True
+        self.loan = None
+        self._bind_ship()
+        self.bankruptcy_notice = {"collateral_ship": collateral.get("name", "Ship") if collateral else "Ship",
+            "recovered": recovered, "forgiven": forgiven, "replacement": replacement,
+            "tick": self.tick}
+        self.journal.append({"id": f"bankruptcy-{self.tick}-{collateral_id or 'lost'}",
+            "tick": self.tick, "action": "loan_bankruptcy", "result": deepcopy(self.bankruptcy_notice)})
+
+    def _sell_equipment(self, item: str) -> dict:
+        self._available(maintenance=True)
+        if item not in EQUIPMENT or item not in self.ship.get("equipment", []):
+            raise GameError("this ship does not have that equipment installed")
+        self.ship["equipment"].remove(item)
+        payout = max(1, EQUIPMENT[item] // 2)
+        self.credits += payout
+        return {"item": item, "credits": payout, "ship_id": self.active_ship_id}
+
+    def _sell_ship(self, ship_id: str) -> dict:
+        ship = self.fleet.get(ship_id)
+        if not ship:
+            raise GameError("unknown ship")
+        if len(self.fleet) <= 1:
+            raise GameError("keep at least one ship in your fleet")
+        if ship_id == self.active_ship_id:
+            raise GameError("select another ship before selling this one")
+        if ship.get("destination") or ship.get("radio_mission") or ship.get("auto_route", {}).get("status") in ("running", "paused"):
+            raise GameError("stop the ship's current assignment before selling it")
+        if any(ship.get("cargo", {}).values()) or any(ship.get("export_cargo", {}).values()):
+            raise GameError("unload the ship's cargo before selling it")
+        if any(crew.get("ship_id") == ship_id for crew in self.crew_roster.values()):
+            raise GameError("reassign the ship's crew before selling it")
+        class_id = ship.get("class_id")
+        if class_id:
+            from .modems import SHIPS
+            hull_cost = next((item["cost"] for item in SHIPS if item["id"] == class_id), 350)
+        else:
+            hull_cost = (350, 900, 1800)[min(2, ship.get("modem_tier", 0))]
+        payout = max(1, hull_cost // 2)
+        self.credits += payout
+        del self.fleet[ship_id]
+        return {"ship_id": ship_id, "name": ship.get("name", "Ship"), "credits": payout}
+
     def story_objective(self) -> dict:
         stages = (
             ("First Signal", "Visit Kepler to investigate a frontier transmission.", "Kepler", 130),
@@ -1085,9 +1337,182 @@ class Game:
         return {"kind": "clear", "label": "Clear corridor", "damage": 0}
 
     def blocked_port(self, now: float | None = None) -> str:
-        """The predictable field moves to the next port every 90 seconds."""
-        now = time.time() if now is None else now
-        return PORT_NAMES[(self.seed + math.floor(now / 90)) % len(PORT_NAMES)]
+        """The asteroid belt blocks one outbound Haven route for two game ticks."""
+        destinations = tuple(port for port in self.ports if port != "Haven")
+        return destinations[(self.seed + self.tick // 2) % len(destinations)]
+
+    def route_parent(self, destination: str) -> str | None:
+        """Return the charted parent node for a local starport."""
+        if destination == "Haven" or destination not in self.ports:
+            return None
+        return self.ports[destination].get("map_parent")
+
+    def route_connected(self, origin: str, destination: str) -> bool:
+        return self.route_parent(destination) == origin or self.route_parent(origin) == destination
+
+    def route_status(self, origin: str, destination: str) -> dict:
+        """Describe whether the charted tree has an open path between ports."""
+        if origin not in self.ports or destination not in self.ports:
+            return {"reachable": False, "open": False, "path": [],
+                    "reason": "No charted path connects these starports."}
+        def ancestors(port):
+            chain = []
+            seen = set()
+            while port and port in self.ports and port not in seen:
+                seen.add(port)
+                chain.append(port)
+                port = self.route_parent(port)
+            return chain
+        origin_chain, destination_chain = ancestors(origin), ancestors(destination)
+        common = next((port for port in origin_chain if port in destination_chain), None)
+        if common is None:
+            return {"reachable": False, "open": False, "path": [],
+                    "reason": "No charted path connects these starports."}
+        path = origin_chain[:origin_chain.index(common) + 1]
+        path.extend(reversed(destination_chain[:destination_chain.index(common)]))
+        for first, second in zip(path, path[1:]):
+            if self.route_parent(second) == first:
+                child = second
+            elif self.route_parent(first) == second:
+                child = first
+            else:
+                return {"reachable": False, "open": False, "path": path,
+                        "reason": "No charted corridor connects these starports."}
+            gate = self.ports[child].get("map_gate") or {}
+            if not gate or gate.get("unlocked"):
+                continue
+            kind = gate.get("kind")
+            if kind == "reputation":
+                faction = gate.get("faction", "explorers")
+                required = int(gate.get("required", 0))
+                current = int(self.factions.get(faction, 0))
+                if current >= required:
+                    gate["unlocked"] = True
+                    continue
+                reason = f"Requires {required} {faction} reputation (you have {current})."
+            elif kind == "contract":
+                job = self.local_jobs.get(gate.get("contract_id"), {})
+                if job.get("status") == "delivered":
+                    gate["unlocked"] = True
+                    continue
+                reason = gate.get("description", "Complete the frontier delivery contract.")
+            else:
+                reason = "This corridor is sealed by an unknown condition."
+            return {"reachable": True, "open": False, "path": path,
+                    "blocked_by": child, "reason": reason}
+        return {"reachable": True, "open": True, "path": path, "reason": "Charted corridor is open."}
+
+    def _initialize_starport_graph(self) -> None:
+        """Migrate the original sector chart to persistent parent/edge metadata."""
+        home = self.galaxies.get("home", {}).get("ports", {})
+        if "Haven" not in home:
+            return
+        parents = {"Kepler": "Haven", "Vesper": "Haven", "Prospect": "Haven",
+                   "Meridian": "Kepler", "Cinder": "Vesper", "Aurora": "Prospect",
+                   "Drift": "Kepler", "Bastion": "Meridian", "Eidolon": "Cinder"}
+        angles = {"Haven": 0, "Kepler": -math.pi / 2, "Vesper": math.pi / 6,
+                  "Prospect": 5 * math.pi / 6, "Meridian": -math.pi / 2 - .35,
+                  "Cinder": math.pi / 6, "Aurora": 5 * math.pi / 6,
+                  "Drift": -math.pi / 2 + .35,
+                  "Bastion": -math.pi / 2 - .35, "Eidolon": math.pi / 6}
+        for port in home.values():
+            port.setdefault("map_neighbors", [])
+        for name, port in home.items():
+            if name == "Haven":
+                port.setdefault("map_parent", None)
+                port.setdefault("map_depth", 0)
+                port.setdefault("map_angle", 0)
+            elif name in parents:
+                parent = parents[name]
+                port.setdefault("map_parent", parent)
+                port.setdefault("map_depth", home[parent].get("map_depth", 0) + 1)
+                port.setdefault("map_angle", angles[name])
+                if parent not in port["map_neighbors"]:
+                    port["map_neighbors"].append(parent)
+                if name not in home[parent]["map_neighbors"]:
+                    home[parent]["map_neighbors"].append(name)
+            elif "map_parent" not in port:
+                parent = "Eidolon"
+                port.update(map_parent=parent, map_depth=home[parent]["map_depth"] + 1,
+                            map_angle=home[parent]["map_angle"] + .35)
+                if parent not in port["map_neighbors"]:
+                    port["map_neighbors"].append(parent)
+                if name not in home[parent]["map_neighbors"]:
+                    home[parent]["map_neighbors"].append(name)
+
+    def _expand_starport_frontier(self, discovered: str) -> int:
+        """Grow a branching, sometimes gated frontier from a reached leaf."""
+        ports = self.galaxies["home"]["ports"]
+        parent = ports.get(discovered)
+        if not parent:
+            return 0
+        children = [node for node in parent.get("map_neighbors", [])
+                    if node != parent.get("map_parent")]
+        if children:
+            return 0
+        rng = random.Random(self.seed * 1_000_003 + len(ports) * 97)
+        shape = rng.random()
+        child_count = 0 if shape < .14 else 1 if shape < .38 else 2
+        if child_count == 0:
+            parent["frontier_dead_end"] = True
+            return 0
+        prefixes = ("Aster", "Nacre", "Vela", "Kestrel", "Sagan", "Tern",
+                    "Caldera", "Peregrine", "Orison", "Lumen", "Rook", "Morrow")
+        suffixes = ("Reach", "Crossing", "Horizon", "Drift", "Spur", "Relay",
+                    "Outpost", "Basin", "Gate", "Haven", "Wake", "Point")
+        roles = ("Frontier refinery", "Survey settlement", "Mining habitat",
+                 "Trade waypoint", "Research station", "Agricultural outpost")
+        signature = self.galaxies["home"].get("specialization", self.specialization)
+        parent_depth = int(parent.get("map_depth", 0))
+        parent_angle = float(parent.get("map_angle", 0))
+        index = len(ports) - len(PORT_NAMES) + 1
+        offsets = (-.34, .34)[:child_count]
+        gate_child = (rng.randrange(child_count) if parent_depth >= 2 and child_count == 2
+                      and rng.random() < .48 else None)
+        gate_kind = rng.choice(("reputation", "contract")) if gate_child is not None else None
+        for child_number, offset in enumerate(offsets):
+            name = f"{rng.choice(prefixes)} {rng.choice(suffixes)}-{index:03d}"
+            while name in ports:
+                index += 1
+                name = f"{rng.choice(prefixes)} {rng.choice(suffixes)}-{index:03d}"
+            stock = {good: rng.randint(14, 42) for good in GOODS}
+            production = {good: rng.randint(0, 2) for good in GOODS}
+            consumption = {good: rng.randint(0, 2) for good in GOODS}
+            for rare in RARE:
+                stock[rare] = rng.randint(0, 3)
+                production[rare] = 0
+                consumption[rare] = 1 if rng.random() < .45 else 0
+            if rng.random() < .35:
+                stock[signature] = rng.randint(12, 30)
+                production[signature] = rng.randint(1, 3)
+                consumption[signature] = 0
+            child = {"stock": stock, "production": production,
+                "consumption": consumption, "distance": int(parent.get("distance", 0)) + 2,
+                "role": rng.choice(roles), "map_parent": discovered,
+                "map_depth": parent_depth + 1, "map_angle": parent_angle + offset,
+                "map_neighbors": [discovered]}
+            if child_number == gate_child and gate_kind == "reputation":
+                child["map_gate"] = {"kind": "reputation", "faction": "explorers",
+                                     "required": min(8, max(2, parent_depth)),
+                                     "unlocked": False}
+            elif child_number == gate_child and gate_kind == "contract":
+                gate_id = f"frontier-gate-{index:04d}"
+                origin = parent.get("map_parent") or discovered
+                good = max(("food", "ore", "fuel", "medicine"),
+                           key=lambda item: ports[origin]["stock"].get(item, 0))
+                self.local_jobs[gate_id] = {"id": gate_id, "kind": "frontier_gate",
+                    "title": f"Clear the {name} corridor", "origin": origin,
+                    "destination": discovered, "good": good, "quantity": 2,
+                    "reward": 220 + parent_depth * 40, "status": "open",
+                    "deadline": self.tick + 999_999_999,
+                    "description": f"Deliver 2 {good} to {discovered} to open the corridor to {name}."}
+                child["map_gate"] = {"kind": "contract", "contract_id": gate_id,
+                    "unlocked": False,
+                    "description": f"Complete the delivery contract at {discovered}."}
+            ports[name] = child
+            parent.setdefault("map_neighbors", []).append(name)
+            index += 1
+        return child_count
 
     def observe_markets(self) -> None:
         """Remember best actual dockside quotes, not omniscient future prices."""
@@ -1128,7 +1553,7 @@ class Game:
             history = [key for key, job in self.local_jobs.items() if job["status"] != "open"]
             for key in history[:len(self.local_jobs) - 100]:
                 del self.local_jobs[key]
-        open_jobs = sum(job["status"] == "open" and job.get("kind") not in ("rival", "followup")
+        open_jobs = sum(job["status"] == "open" and job.get("kind") not in ("rival", "followup", "frontier_gate")
                         for job in self.local_jobs.values())
         ports = list(self.ports)
         while open_jobs < 3 and ports:
@@ -1145,6 +1570,7 @@ class Game:
                 "destination": destination, "good": good, "quantity": quantity,
                 "reward": reward, "status": "open", "deadline": self.tick + 48}
             open_jobs += 1
+        self._enforce_open_delivery_shortages()
 
     def _deliver_local(self, job_id: str, resolution: str = "commercial") -> dict:
         self._available()
@@ -1178,6 +1604,10 @@ class Game:
         job["status"] = "delivered"
         job["completed_tick"] = self.tick
         job["resolution"] = resolution
+        for port in self.galaxies.get("home", {}).get("ports", {}).values():
+            gate = port.get("map_gate", {})
+            if gate.get("contract_id") == job_id:
+                gate["unlocked"] = True
         captain = self.npc_captains.get(job.get("npc_id"))
         if captain and job.get("kind") in ("rival", "followup"):
             captain["relationship"] = max(-5, min(5, captain["relationship"] +
@@ -1224,10 +1654,12 @@ class Game:
                             "result": {"port": ship["location"], "title": encounter["title"]}})
                     if ship.get("galaxy", "home") == "home" and ship["location"] not in self.visited_ports:
                         self.visited_ports.append(ship["location"])
+                        self._expand_starport_frontier(ship["location"])
+                        artifact = self._collect_frontier_artifact(ship["location"])
                         explore_bonus = 90 + min(100, self.factions["explorers"] * 10)
+                        explore_bonus += 50 * self.haven_facilities.get("grand_archive", 0)
                         if "survey_uplink" in self.faction_perks:
                             explore_bonus += 45
-                        self.credits += explore_bonus
                         self.factions["explorers"] += 1
                         index = list(self.ports).index(ship["location"])
                         if index % 3 == 1:
@@ -1237,11 +1669,14 @@ class Game:
                         else:
                             find = {"title": "Uncharted trade outpost", "reward": 80 + index * 10}
                         self.discoveries[ship["location"]] = find
-                        self.credits += find["reward"]
+                        discovery_reward = (explore_bonus + find["reward"]) * (
+                            100 + 25 * self.haven_facilities.get("survey_archive", 0)) // 100
+                        self.credits += discovery_reward
                         self.journal.append({"id": "explore-" + ship["location"],
                             "tick": self.tick, "action": "explore",
-                            "result": {"port": ship["location"], "reward": explore_bonus + find["reward"],
-                                       "discovery": find["title"]}})
+                            "result": {"port": ship["location"], "reward": discovery_reward,
+                                       "discovery": find["title"],
+                                       "artifact": artifact["title"] if artifact else None}})
                     route = ship.get("auto_route")
                     if route and route.get("status") == "running" and first_visit:
                         self._pause_auto_route(ship, "discovery", "New starport discovered: inspect the site before continuing")
@@ -1274,9 +1709,9 @@ class Game:
         if port is None and self.ship.get("galaxy", "home") != "home":
             return []
         port = self.location if port is None else port
-        if port not in PORT_NAMES:
+        if port not in self.ports:
             return []
-        index, cycle = PORT_NAMES.index(port), self.tick // 144
+        index, cycle = list(self.ports).index(port), self.tick // 144
         roles = tuple(CREW_ROLES)
         offers = []
         for slot in range(3):
@@ -1874,7 +2309,7 @@ class Game:
             production = {good: rng.randint(0, 2) for good in GOODS}
             consumption = {good: rng.randint(0, 2) for good in GOODS}
             for rare in RARE:
-                stock[rare] = rng.randint(0, 5)
+                stock[rare] = rng.randint(0, 3)
                 production[rare] = 0
                 consumption[rare] = 1 if rng.random() < .45 else 0
             # The galaxy's signature resource is plentiful at its producer,
@@ -1890,6 +2325,12 @@ class Game:
                 stock[focus] = 85
                 production[focus] = 4
                 consumption[focus] = 0
+            # Haven is the dependable refueling hub, even when its seeded
+            # market roll would otherwise make fuel a net shortage.
+            if i == 0:
+                stock["fuel"] = max(40, stock["fuel"])
+                production["fuel"] = max(3, production["fuel"])
+                consumption["fuel"] = min(2, consumption["fuel"])
             ports[port] = {"stock": stock, "production": production,
                            "consumption": consumption,
                            "distance": abs(i - 0) * 2 + (1 if i else 0),
@@ -1908,8 +2349,19 @@ class Game:
         stock = self.ports[port]["stock"][good] if stock_override is None else stock_override
         # Scarcity raises prices, supply depresses them. Narrow spread blocks
         # buying and immediately reselling for a profit in the same port.
-        pressure = max(50, min(200, 150 - stock))
+        if good == "fuel":
+            # Fuel remains sensitive to supply, but its swings are narrower
+            # because it gates basic movement rather than cargo trading.
+            pressure = max(65, min(160, 150 - stock))
+        else:
+            pressure = max(50, min(200, 150 - stock))
         midpoint = max(1, BASE_PRICE[good] * pressure // 100)
+        if good in RARE:
+            # The active galaxy's signature is its export strength. Keep that
+            # resource comparatively affordable while non-signature rares
+            # carry a scarcity premium that rewards importing from elsewhere.
+            identity = 75 if good == self.specialization else 125
+            midpoint = max(1, midpoint * identity // 100)
         if any(event["port"] == port and event["good"] == good
                for event in self.active_sector_events()):
             midpoint = midpoint * 150 // 100
@@ -1981,6 +2433,8 @@ class Game:
                 result = self._repair()
             elif action == "refuel":
                 result = self._refuel(**kwargs)
+            elif action == "emergency_refuel":
+                result = self._emergency_refuel(**kwargs)
             elif action == "upgrade":
                 result = self._upgrade()
             elif action == "upgrade_modem":
@@ -2047,6 +2501,16 @@ class Game:
                 result = self._cancel_vip(**kwargs)
             elif action == "buy_equipment":
                 result = self._buy_equipment(**kwargs)
+            elif action == "dockside_shift":
+                result = self._dockside_shift()
+            elif action == "take_loan":
+                result = self._take_loan(**kwargs)
+            elif action == "sell_equipment":
+                result = self._sell_equipment(**kwargs)
+            elif action == "sell_ship":
+                result = self._sell_ship(**kwargs)
+            elif action == "sell_hold_upgrade":
+                result = self._sell_hold_upgrade()
             elif action == "complete_story":
                 result = self._complete_story()
             elif action == "accept_expedition":
@@ -2080,6 +2544,7 @@ class Game:
         self._check_port_good(self.location, good)
         if type(amount) is not int or amount <= 0 or amount > 10000:
             raise GameError("amount must be a positive integer <= 10000")
+        self._enforce_open_delivery_shortages()
         stock = self.ports[self.location]["stock"]
         unit = self.price(self.location, good, action)
         total = unit * amount
@@ -2105,6 +2570,7 @@ class Game:
                 raise GameError("insufficient cargo")
             self.cargo[good] -= amount
             stock[good] += amount
+            self._enforce_open_delivery_shortages()
             self.credits += total
             eligible = self.ship.setdefault("export_cargo", {})
             eligible[good] = max(0, eligible.get(good, 0) - amount)
@@ -2132,6 +2598,11 @@ class Game:
         self._available()
         if destination not in self.ports or destination == self.location:
             raise GameError("invalid destination")
+        corridor = self.route_status(self.location, destination)
+        if not corridor["reachable"]:
+            raise GameError(corridor["reason"])
+        if not corridor["open"]:
+            raise GameError("Corridor blocked: " + corridor["reason"])
         if pirate_stance not in ("pay", "evade", "fight"):
             raise GameError("invalid pirate strategy")
         equipment = self.ship.get("equipment", [])
@@ -2141,7 +2612,12 @@ class Game:
         distance = abs(self.ports[destination]["distance"] -
                        self.ports[self.location]["distance"])
         risk = self.route_risk(self.location, destination)
-        fuel_cost = max(2, distance * 2) + (4 if blocked else 0) + (4 if risk["kind"] == "pirates" and pirate_stance == "evade" else 0)
+        # Distances are already expressed in map hops; charge one unit per
+        # hop, with charted routes retaining their half-cost advantage.
+        base_fuel = max(1, distance)
+        fuel_cost = (max(1, base_fuel // 2) if self.route_connected(self.location, destination)
+                     else base_fuel)
+        fuel_cost += (4 if blocked else 0) + (2 if risk["kind"] == "pirates" and pirate_stance == "evade" else 0)
         pilot = self.crew_member(self.active_ship_id, "pilot")
         engineer = self.crew_member(self.active_ship_id, "engineer")
         if pilot:
@@ -2286,6 +2762,7 @@ class Game:
             self._advance_npc_captains()
             self._refresh_sector_events()
             self._refresh_local_encounters()
+            self._service_loan()
         self._replenish_local_jobs()
         self._advance_faction_followups()
         self._refresh_haven_orders()
@@ -2324,6 +2801,7 @@ class Game:
             self._advance_faction_followups()
             self._refresh_haven_orders()
             self.observe_markets()
+            self._service_loan()
         return {"epoch": self.clock_epoch, "advanced": elapsed, "tick": self.tick}
 
     def _repair_cost(self, ship_id: str) -> int:
@@ -2361,6 +2839,20 @@ class Game:
         self.credits -= cost
         return {"amount": amount, "cost": cost, "fuel": self.ship["fuel"]}
 
+    def _emergency_refuel(self, amount: int) -> dict:
+        """Buy reserve fuel at a dock when local market stock is exhausted."""
+        self._available(maintenance=True)
+        if type(amount) is not int or amount <= 0 or self.ship["fuel"] + amount > self.ship["max_fuel"]:
+            raise GameError("emergency fuel amount exceeds tank capacity")
+        if self.ports[self.location]["stock"]["fuel"] > 0:
+            raise GameError("use the regular refuel service while station fuel is available")
+        cost = self.price(self.location, "fuel", "buy") * amount * 2
+        if self.credits < cost:
+            raise GameError("insufficient credits for emergency reserve fuel")
+        self.credits -= cost
+        self.ship["fuel"] += amount
+        return {"amount": amount, "cost": cost, "fuel": self.ship["fuel"], "emergency": True}
+
     def _upgrade(self) -> dict:
         self._available()
         cost = 400 + self.ship["capacity"] * 10
@@ -2369,6 +2861,18 @@ class Game:
         self.credits -= cost
         self.ship["capacity"] += 10
         return {"cost": cost, "capacity": self.ship["capacity"]}
+
+    def _sell_hold_upgrade(self) -> dict:
+        self._available(maintenance=True)
+        if self.ship["capacity"] <= 30:
+            raise GameError("no cargo hold upgrade to sell")
+        if self.cargo_used() > self.ship["capacity"] - 10:
+            raise GameError("unload cargo before reducing hold capacity")
+        cost = 400 + (self.ship["capacity"] - 10) * 10
+        payout = max(1, cost // 2)
+        self.ship["capacity"] -= 10
+        self.credits += payout
+        return {"credits": payout, "capacity": self.ship["capacity"]}
 
     def _buy_ship(self) -> dict:
         self._available()

@@ -49,6 +49,33 @@ def outgoing(app, payload, purpose, destination, contract_id=""):
 
 
 class RadioFlowTests(unittest.TestCase):
+    def test_first_contact_transmission_can_start_from_any_docked_port(self):
+        app = station('W1AAA', 11)
+        app.game.ship['location'] = 'Kepler'
+        app.game._bind_ship()
+        mode = SimpleNamespace(mode_id='n4-quiet', bandwidth_hz=200,
+                               bytes_per_codeword=64, max_codewords=8, seconds_max=1)
+        app._send_radio_frames = lambda *args: None
+        with patch('tradenet.web.Data2GClient') as modem_type:
+            modem = modem_type.return_value.__enter__.return_value
+            modem.modes.return_value = [mode]
+            result = app.execute({'action': 'radio_transmit', 'purpose': 'contact',
+                                  'station': 'W2BBB', 'mode_id': 'n4-quiet'})
+        self.assertEqual(result['status'], 'queued_to_modem')
+        self.assertEqual(app.game.ship['location'], 'Kepler')
+
+    def test_every_station_advertises_signature_and_three_rare_project(self):
+        app = station('W1AAA', 11)
+        offers = app.radio_contracts[app.callsign]
+        signature = next(item for item in offers if item.get('kind') == 'abundance')
+        project = next(item for item in offers if item.get('kind') == 'galaxy_project')
+        self.assertEqual(signature['good'], app.game.specialization)
+        self.assertEqual(signature['quantity'], 12)
+        self.assertEqual(set(project['requirements']), {'aether', 'iridium', 'mycelium'})
+        wire = radio_exchange.wire_contracts([project], 1)
+        decoded = radio_exchange.read_contracts(wire, 'W1AAA')[0]
+        self.assertEqual(decoded['requirements'], project['requirements'])
+
     def test_receiving_hub_accepts_real_freight_while_every_ship_is_away(self):
         sender, receiver = station("W1AAA", 11), station("W2BBB", 22)
         receiver.game.ship["location"] = "Kepler"

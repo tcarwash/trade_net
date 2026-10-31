@@ -153,6 +153,16 @@ class CockpitBrowserTests(unittest.TestCase):
         expect(page.locator('#beaconPanel')).to_be_visible()
         self.snapshot('beacon-mobile')
 
+    def test_comms_dropdowns_keep_focus_during_state_renders(self):
+        page = self.page
+        page.get_by_role('tab', name='Comms', exact=True).click()
+        for selector in ('#radioContract', '#beaconContract', '#beaconGood'):
+            control = page.locator(selector)
+            control.focus()
+            page.evaluate('refresh()')
+            expect(control).to_be_focused()
+            self.assertEqual(control.evaluate('e => e === document.activeElement'), True)
+
     def snapshot(self, name):
         directory = os.environ.get('TRADENET_SCREENSHOT_DIR')
         if directory:

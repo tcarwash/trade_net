@@ -1,5 +1,30 @@
 {
-  "transmissions": {},
+  "transmissions": {
+    "radio-090a479bf651": {
+      "id": "radio-090a479bf651",
+      "message_id": "bae1ea1f9b5c4b2b",
+      "contract_id": "",
+      "payload_hash": "812ef38a836f4d14",
+      "purpose": "contact",
+      "payload_hex": "7b2263223a5b5b2241473753552d4330303031222c226f7265222c31305d2c5b2241473753552d4330303032222c226d7963656c69756d222c355d2c5b2241473753552d4330303033222c22616574686572222c355d5d2c2264223a224147374557222c2266223a224147375355222c2269223a2262616531656131663962356334623262222c226e223a5b5d2c2270223a5b302c302c355d2c2273223a5b302c352c305d2c2274223a22636f6e74616374222c2276223a312c2278223a226d7963656c69756d227d",
+      "auto_retry_count": 0,
+      "mode_id": "n4-16qam-r1/3",
+      "ship_id": "ship-1",
+      "band": null,
+      "origin": "Kepler",
+      "destination": "AG7EW",
+      "bytes": 201,
+      "frames": 3,
+      "intel_reports": 0,
+      "digest": "812ef38a836f",
+      "status": "cancelled",
+      "started_at": 1793421759.0023036,
+      "timeout_at": 1793422605.0023036,
+      "timeout_seconds": 846,
+      "cancelled_at": 1793421911.4340324,
+      "recovery_error": "Retries stopped by captain; frames already sent may still receive a reply."
+    }
+  },
   "inbox": [],
   "contacts": {},
   "contracts": {
@@ -24,11 +49,34 @@
         "good": "aether",
         "quantity": 5,
         "status": "open"
+      },
+      {
+        "id": "AG7SU-C0004",
+        "issuer": "AG7SU",
+        "good": "mycelium",
+        "quantity": 12,
+        "status": "open",
+        "kind": "abundance"
+      },
+      {
+        "id": "AG7SU-C0005",
+        "issuer": "AG7SU",
+        "good": "mycelium",
+        "quantity": 6,
+        "status": "open",
+        "kind": "galaxy_project",
+        "requirements": {
+          "aether": 6,
+          "iridium": 6,
+          "mycelium": 6
+        }
       }
     ]
   },
   "resources": {},
   "reservations": {},
   "processed": {},
-  "assemblies": {}
+  "assemblies": {},
+  "beacons": {},
+  "beacon_last_tx": null
 }

@@ -1337,8 +1337,10 @@ class Game:
         return {"kind": "clear", "label": "Clear corridor", "damage": 0}
 
     def blocked_port(self, now: float | None = None) -> str:
-        """The asteroid belt blocks one outbound Haven route for two game ticks."""
-        destinations = tuple(port for port in self.ports if port != "Haven")
+        """Cycle the blockade across Haven's direct routes every two game ticks."""
+        destinations = tuple(port for port in self.ports if self.route_parent(port) == "Haven")
+        if not destinations:
+            return ""
         return destinations[(self.seed + self.tick // 2) % len(destinations)]
 
     def route_parent(self, destination: str) -> str | None:
@@ -1349,6 +1351,16 @@ class Game:
 
     def route_connected(self, origin: str, destination: str) -> bool:
         return self.route_parent(destination) == origin or self.route_parent(origin) == destination
+
+    def asteroid_field_blocks(self, origin: str, destination: str) -> bool:
+        """Whether a trip's charted path crosses the currently blocked Haven edge."""
+        blocked = self.blocked_port()
+        if not blocked:
+            return False
+        path = self.route_status(origin, destination).get("path", [])
+        return any((first == "Haven" and second == blocked) or
+                   (first == blocked and second == "Haven")
+                   for first, second in zip(path, path[1:]))
 
     def route_status(self, origin: str, destination: str) -> dict:
         """Describe whether the charted tree has an open path between ports."""
@@ -1947,7 +1959,7 @@ class Game:
                     continue
                 def depart():
                     risk = self.route_risk(self.location, port)
-                    if self.blocked_port() == port:
+                    if self.asteroid_field_blocks(self.location, port):
                         self._pause_auto_route(ship, "blocked", f"Asteroid field obstructs {port}; try again when it moves")
                         return
                     if risk["kind"] != "clear":
@@ -2112,7 +2124,8 @@ class Game:
                     or ship.get("radio_mission") or ship.get("vip_job")
                     or ship.get("voyage") or any(ship["cargo"].values())
                     or ship.get("auto_route", {}).get("status") in ("running", "paused")
-                    or ship.get("condition", 0) < 10 or self.blocked_port() == "Haven"
+                    or ship.get("condition", 0) < 10
+                    or self.asteroid_field_blocks(ship.get("location", "Haven"), "Haven")
                     or self.route_risk(ship["location"], "Haven")["kind"] != "clear"):
                 continue
             try:
@@ -2606,7 +2619,7 @@ class Game:
         if pirate_stance not in ("pay", "evade", "fight"):
             raise GameError("invalid pirate strategy")
         equipment = self.ship.get("equipment", [])
-        blocked = destination == self.blocked_port()
+        blocked = self.asteroid_field_blocks(self.location, destination)
         if blocked and "navigator" not in equipment:
             raise GameError(f"Asteroid field blocks the direct approach to {destination}; wait for the field to orbit onward")
         distance = abs(self.ports[destination]["distance"] -

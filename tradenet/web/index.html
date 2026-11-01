@@ -110,6 +110,7 @@ dialog.moment-dialog::backdrop{background:#030811ce;backdrop-filter:blur(8px)}.m
 </main><footer><span>TRADE NET / FRONTIER COMMAND</span><span>Data2G operator controlled</span><span id="connectionStatus" role="status">Connecting…</span></footer>
 <script>
 let state=null, counter=0, activeRadioJobId=null, radioReturnTimer=null,lastSavedAt=null,feedbackTimer=null,nextActionView='contracts',nextActionDestination='',nextActionGood='',nextActionAmount=0,nextActionCommand=null,nextActionArgs={},currentContractsFilter='all',pendingAbandonExpedition='',beaconPreviewResult=null;
+let dismissedRadioJobs=new Set();try{dismissedRadioJobs=new Set(JSON.parse(sessionStorage.getItem('trade-net-dismissed-radio-jobs')||'[]'))}catch{}
 let momentsReady=false,seenJournal=new Set(),priorFlights=new Map(),priorRadio=new Map(),priorDispatch=new Set(),momentQueue=[],activeMoment=null;
 let guideStep=Number(sessionStorage.getItem('trade-net-guide-step')||0),guideJobId=sessionStorage.getItem('trade-net-guide-job')||'';
 const el=id=>document.getElementById(id);
@@ -298,12 +299,16 @@ function openRaiderBattle(){
   if(!raiderDialog.open)raiderDialog.showModal();return true;
 }
 function renderRadioJourney(){
-  let jobs=state?.radio_transmissions||[],job=jobs.find(item=>item.id===activeRadioJobId)||jobs.slice().sort((a,b)=>b.started_at-a.started_at)[0];
+  let jobs=state?.radio_transmissions||[],ordered=jobs.slice().sort((a,b)=>b.started_at-a.started_at),job=jobs.find(item=>item.id===activeRadioJobId);
+  if(job?.status==='cancelled'&&dismissedRadioJobs.has(job.id))job=null;
+  if(!job){job=ordered.find(item=>item.status==='awaiting_ack');const latest=ordered[0];if(!job&&latest&&(latest.status!=='cancelled'||!dismissedRadioJobs.has(latest.id)))job=latest}
   if(!job){el('txJourney').hidden=true;return}
   activeRadioJobId=job.id;el('txJourney').hidden=false;
   let motion=el('txShip').querySelector('animateMotion'),destination=state.navigation.galaxies[job.destination]?.name||job.destination;
   let abort=el('abortRadioMission');if(!abort){abort=document.createElement('button');abort.id='abortRadioMission';abort.type='button';abort.className='secondary';abort.textContent='Abort mission';abort.addEventListener('click',()=>{if(confirm('Stop waiting and cancel automatic retries? Frames already sent cannot be recalled. A late reply may still settle this mission.'))api({action:'abort_radio_mission',job_id:activeRadioJobId})});el('txJourney').append(abort)}
+  let dismiss=el('dismissRadioStatus');if(!dismiss){dismiss=document.createElement('button');dismiss.id='dismissRadioStatus';dismiss.type='button';dismiss.className='secondary';dismiss.textContent='Dismiss status';dismiss.addEventListener('click',()=>{const id=activeRadioJobId;if(!id)return;dismissedRadioJobs.add(id);sessionStorage.setItem('trade-net-dismissed-radio-jobs',JSON.stringify([...dismissedRadioJobs]));activeRadioJobId=null;renderRadioJourney()});el('txJourney').append(dismiss)}
   abort.hidden=job.status!=='awaiting_ack';
+  dismiss.hidden=job.status!=='cancelled';
   el('txDestination').textContent=String(destination).toUpperCase();
   if(job.status==='awaiting_ack'){
     el('txJourney').dataset.phase='outbound';el('txRoute').setAttribute('d','M30 40 C190 3 490 69 670 34');motion.setAttribute('repeatCount','indefinite');

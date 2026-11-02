@@ -644,6 +644,9 @@ function appendShipSprite(parent,ship,x,y,width,height){
   fit.append(gear);parent.append(fit);return fit;
 }
 function shipPortrait(id,ship){let portrait=svg('svg',{id,viewBox:'0 0 96 112',role:'img','aria-label':ship.name+' spacecraft'+((ship.equipment||[]).length?' with '+ship.equipment.join(', '):'')});appendShipSprite(portrait,ship,0,0,96,112);return portrait}
+// SMIL begin times use the SVG root's clock, which survives map redraws.
+// Anchor elapsed motion to that clock so it is not added a second time.
+function mapMotionBegin(canvas,elapsed){return (canvas.getCurrentTime()-elapsed)+'s'}
 function shipGlyph(canvas,x,y,label,from=null,ship=state.game.ship,motion=null){
   const animateRoute=Boolean(motion&&!matchMedia('(prefers-reduced-motion: reduce)').matches);
   let group=svg('g',{class:'ship-marker selectable-ship',transform:animateRoute?'translate(0 0)':`translate(${x} ${y})`,role:'button',tabindex:'0','aria-label':`Select ship ${ship.name} (${ship.id})`,'aria-pressed':String(ship.id===state.game.active_ship_id),'data-active':String(ship.id===state.game.active_ship_id),'data-focus-key':'ship:'+ship.id});
@@ -652,21 +655,21 @@ function shipGlyph(canvas,x,y,label,from=null,ship=state.game.ship,motion=null){
   activate(group,()=>{if(ship.id!==state.game.active_ship_id)command('select_ship',{ship_id:ship.id})});
   appendShipSprite(group,ship,-20,-26,40,47);
   group.appendChild(svg('text',{x:0,y:31,'text-anchor':'middle',class:'map-label'},label));
-  if(animateRoute)group.append(svg('animateMotion',{path:`M ${motion.from.x} ${motion.from.y} L ${motion.to.x} ${motion.to.y}`,begin:`-${motion.elapsed}s`,dur:`${motion.duration}s`,fill:'freeze',rotate:'auto'}));
+  if(animateRoute)group.append(svg('animateMotion',{path:`M ${motion.from.x} ${motion.from.y} L ${motion.to.x} ${motion.to.y}`,begin:mapMotionBegin(canvas,motion.elapsed),dur:`${motion.duration}s`,fill:'freeze'}));
   if(from && !matchMedia('(prefers-reduced-motion: reduce)').matches && (from.x!==x||from.y!==y)){
     let animation=svg('animateTransform',{attributeName:'transform',type:'translate',from:`${from.x} ${from.y}`,to:`${x} ${y}`,dur:'1s',fill:'freeze'});
     group.appendChild(animation);
   }
   canvas.appendChild(group);
 }
-function orbitalShipGlyph(layer,center,ship,rx,ry,pathData){
+function orbitalShipGlyph(layer,center,ship,rx,ry,pathData,canvas){
   let seed=2166136261;for(const char of String(ship.id||ship.name||'ship')){seed^=char.charCodeAt(0);seed=Math.imul(seed,16777619)>>>0}
   const seconds=17+seed%7,phaseOffset=(seed>>>8)/16777216*seconds,reduced=matchMedia('(prefers-reduced-motion: reduce)').matches,phase=reduced?phaseOffset:(Date.now()/1000+phaseOffset)%seconds,angle=phase/seconds*Math.PI*2,y=-ry*Math.sin(angle);
   let frame=svg('g',{class:'orbital-ship',transform:`translate(${center.x} ${center.y})`,role:'img','aria-label':`${ship.name} orbiting the planet`});
   let icon=svg('g',{transform:reduced?`translate(${rx*Math.cos(angle)} ${y})`:''});
   let sprite=svg('g',{transform:'rotate(90)'});appendShipSprite(sprite,ship,-10,-12.5,20,25);
   icon.append(sprite,svg('title',{},`${ship.name} in orbit`));
-  if(!reduced)icon.append(svg('animateMotion',{begin:'-'+phase+'s',dur:seconds+'s',repeatCount:'indefinite',rotate:'auto',path:pathData}));
+  if(!reduced)icon.append(svg('animateMotion',{begin:mapMotionBegin(canvas,phase),dur:seconds+'s',repeatCount:'indefinite',rotate:'auto',path:pathData}));
   frame.append(icon);layer.append(frame);
 }
 function drawPursuitMarker(canvas,point,ship){
@@ -698,7 +701,7 @@ function drawShipOverlay(canvas,positions){
     else{
       let index=dockedCounts[ship.location]||0;dockedCounts[ship.location]=index+1;
       const vb=canvas.viewBox.baseVal,closeOnDock=mapZoom>=1.55&&origin.x>=vb.x&&origin.x<=vb.x+vb.width&&origin.y>=vb.y&&origin.y<=vb.y+vb.height;
-      if(closeOnDock){const rx=26+Math.min(index,4)*8,ry=19+Math.min(index,4)*5,pathData=`M ${rx} 0 A ${rx} ${ry} 0 1 1 ${-rx} 0 A ${rx} ${ry} 0 1 1 ${rx} 0`,orbit=svg('path',{d:pathData,transform:`translate(${origin.x} ${origin.y})`,fill:'none',stroke:'#83cddd','stroke-width':.8,'stroke-dasharray':'3 6',opacity:.55,class:'ship-orbit'});orbit.append(svg('title',{},ship.name+' orbital track'));behindLayer.appendChild(orbit);orbitalShipGlyph(behindLayer,origin,ship,rx,ry,pathData)}
+      if(closeOnDock){const rx=26+Math.min(index,4)*8,ry=19+Math.min(index,4)*5,pathData=`M ${rx} 0 A ${rx} ${ry} 0 1 1 ${-rx} 0 A ${rx} ${ry} 0 1 1 ${rx} 0`,orbit=svg('path',{d:pathData,transform:`translate(${origin.x} ${origin.y})`,fill:'none',stroke:'#83cddd','stroke-width':.8,'stroke-dasharray':'3 6',opacity:.55,class:'ship-orbit'});orbit.append(svg('title',{},ship.name+' orbital track'));behindLayer.appendChild(orbit);orbitalShipGlyph(behindLayer,origin,ship,rx,ry,pathData,canvas)}
       else{point={x:origin.x+42+(index%3)*28,y:origin.y-30-Math.floor(index/3)*28};canvas.appendChild(svg('line',{x1:origin.x,y1:origin.y,x2:point.x,y2:point.y,class:'ship-dock-link'}));shipGlyph(canvas,point.x,point.y,ship.name,null,ship)}
       drawPursuitMarker(canvas,{x:origin.x+42,y:origin.y-30},ship);continue;
     }

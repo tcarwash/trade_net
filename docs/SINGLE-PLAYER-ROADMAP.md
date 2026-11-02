@@ -128,6 +128,12 @@ same physical cargo and travel commands as the economy.
 
 ## Phase 4 — Exploration sites and salvage
 
+- [x] Individual recovered modifications, named uniques, shipyard-only fitting, and local port lockers for transfers.
+- [x] Permanent settlement supply projects and local service/production rewards.
+- [x] Cargo/VIP pursuit warnings, optional mod jettisoning, and combat turns.
+- [x] Persistent network/direct route plans and early contract-gated branches.
+- Details: [Single-player progression](SINGLE-PLAYER-PROGRESSION.md).
+
 - [ ] Discoverable derelicts, gas-cloud pockets, ancient relays, asteroid mines
       and hidden settlements between starports.
 - [x] Existing fog of war and scanner route intel now connect to nine

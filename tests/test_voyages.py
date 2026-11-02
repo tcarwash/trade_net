@@ -81,6 +81,10 @@ class LocalVoyageTests(unittest.TestCase):
 
     def test_asteroid_block_and_hazard_outcomes_are_explicit(self):
         game = Game.new(41)
+        # Isolate moving asteroid hazards from the new quest checkpoints.
+        for site in game.ports.values():
+            if site.get('map_gate'):
+                site['map_gate']['unlocked'] = True
         blocked = game.blocked_port()
         with self.assertRaisesRegex(GameError, "Asteroid field"):
             game.command("blocked", "travel", destination=blocked)

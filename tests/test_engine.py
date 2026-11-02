@@ -25,7 +25,7 @@ class EconomyTests(unittest.TestCase):
         game.ports['Kepler']['stock']['fuel'] = 0
         result = game.command('reserve-fuel', 'emergency_refuel', amount=3)
         self.assertEqual(result['fuel'], 5)
-        self.assertEqual(result['cost'], game.price('Kepler', 'fuel', 'buy') * 6)
+        self.assertEqual(result['cost'], game.refuel_unit_price('Kepler') * 6)
         self.assertEqual(game.ports['Kepler']['stock']['fuel'], 0)
 
     def test_can_resell_installed_gear_and_idle_ship_safely(self):
@@ -208,8 +208,8 @@ class EconomyTests(unittest.TestCase):
 
     def test_local_freight_requires_delivery_and_replenishes_board(self):
         game = Game.new(42)
-        self.assertEqual(len([j for j in game.local_jobs.values() if j['status'] == 'open']), 3)
-        job = next(iter(game.local_jobs.values()))
+        self.assertEqual(len([j for j in game.local_jobs.values() if j['status'] == 'open' and j.get('kind') != 'frontier_gate']), 3)
+        job = next(j for j in game.local_jobs.values() if j['status']=='open' and j.get('kind')!='frontier_gate')
         with self.assertRaises(GameError):
             game.command('premature', 'deliver_local', job_id=job['id'])
         game.cargo[job['good']] = job['quantity']
@@ -220,7 +220,7 @@ class EconomyTests(unittest.TestCase):
         self.assertEqual(delivered['reward'], job['reward'])
         self.assertEqual(game.credits, before + job['reward'])
         self.assertEqual(game.cargo[job['good']], 0)
-        self.assertEqual(len([j for j in game.local_jobs.values() if j['status'] == 'open']), 3)
+        self.assertEqual(len([j for j in game.local_jobs.values() if j['status'] == 'open' and j.get('kind') != 'frontier_gate']), 3)
         self.assertEqual(game.command('delivery', 'deliver_local', job_id=job['id']), delivered)
         with self.assertRaises(GameError):
             game.command('double-pay', 'deliver_local', job_id=job['id'])
@@ -301,6 +301,9 @@ class EconomyTests(unittest.TestCase):
         upgrade = fast.command("ship", "buy_ship")
         self.assertEqual(upgrade["max_bandwidth_hz"], 1200)
         self.assertEqual(fast.ship["speed"], 2)
+        for game in (slow, fast):
+            game.cargo['ore'] = 3
+            game.command('open-meridian', 'deliver_local', job_id='hub-clearance-meridian')
         slow_eta = slow.command("slow", "travel", destination="Meridian")["travel_seconds"]
         fast_eta = fast.command("fast", "travel", destination="Meridian")["travel_seconds"]
         self.assertLess(fast_eta, slow_eta)

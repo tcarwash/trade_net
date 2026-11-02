@@ -37,6 +37,8 @@ class CockpitBrowserTests(unittest.TestCase):
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
         self.url = f"http://127.0.0.1:{port}"
+        if hasattr(self, 'make_initial_game'):
+            self.make_initial_game().save(Path(self.temp.name) / 'galaxy.json')
         self.server = subprocess.Popen(
             [sys.executable, "-m", "tradenet.web", "--port", str(port),
              "--save", str(Path(self.temp.name) / "galaxy.json")],

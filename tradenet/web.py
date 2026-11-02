@@ -18,6 +18,7 @@ from copy import deepcopy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from .progression import MODULES
 from .engine import Game, GameError, GOODS, RARE, BASE_PRICE, HAVEN_FACILITIES, CREW_ROLES, LOAN_PLANS, ARTIFACT_CATALOG, ARTIFACT_TYPES, EQUIPMENT_CARGO_SPACE
 from .network import Network
 from . import modems
@@ -926,11 +927,13 @@ class App:
             ship["flight_encounters"][0].get("status") == "scheduled" and
             now >= ship["flight_encounters"][0].get("trigger_at", float("inf"))
             for ship in self.game.fleet.values())
-        if local_arrival_due or transit_encounter_due:
+        pursuit_live = any(ship.get('pursuit') or self.game.pursuit_sources(ship)
+                           for ship in self.game.fleet.values())
+        if local_arrival_due or transit_encounter_due or pursuit_live:
             self.game._all_arrivals()
         if first or results["local"]["advanced"]:
             self.persist()
-        elif local_arrival_due or transit_encounter_due:
+        elif local_arrival_due or transit_encounter_due or pursuit_live:
             self.persist()
         return results
 
@@ -988,6 +991,13 @@ class App:
         game_state.pop("radio_state", None)  # Radio ledgers have their own bounded projection.
         return {"game": game_state, "save_id": self.save_id, "network": {"local_id": self.callsign},
                 "equipment_cargo_space": EQUIPMENT_CARGO_SPACE,
+                "module_catalog": MODULES,
+                "module_effects": self.game.module_effects(),
+                "combat_quote": self.game.combat_quote(),
+                "module_space": {sid:self.game.module_cargo_used(sid) for sid in self.game.fleet},
+                "repair_prices": {sid:self.game._repair_cost(sid) for sid in self.game.fleet},
+                "settlements": {port:quote for port in self.game.visited_ports
+                                if (quote:=self.game.settlement_quote(port))},
                 "navigation": self._navigation(),
                 "ship_classes": deepcopy(list(getattr(modems, "SHIPS", ()))),
                 "story_objective": self.game.story_objective(),
@@ -1040,6 +1050,10 @@ class App:
                                 for port in self.game.ports if self.game.ports[port].get("map_parent")},
                 "route_paths": {port: self.game.route_status(self.game.location, port)
                                 for port in self.game.ports if port != self.game.location},
+                "route_fuel": {port: self.game.travel_fuel_quote(self.game.location, port)
+                               for port in self.game.ports if port != self.game.location},
+                "refuel_prices": {port: self.game.refuel_unit_price(port)
+                                  for port in self.game.ports},
                 "route_hazards": {port: self.game.route_risk(self.game.location, port)
                                   for port in self.game.ports if port != self.game.location},
                 "chart_hazards": {port: self.game.route_risk(self.game.ports[port].get("map_parent"), port)
@@ -1056,6 +1070,8 @@ class App:
 
     def execute(self, request):
         action = request.get("action")
+        if action == 'route_preview':
+            return self.game.plan_route(**request.get('args',{}))
         if action in ("radio_beacon_preview", "radio_beacon_transmit"):
             good = str(request.get("good", ""))
             contract_id = str(request.get("contract_id", ""))
@@ -1352,6 +1368,9 @@ def serve(host="127.0.0.1", port=8765, save="galaxy.json", seed=42, callsign="AG
             assets.update({f"/assets/planets/{name}-{variant}.png":
                            (f"assets/planets/{name}-{variant}.png", "image/png")
                            for name in planet_sprites for variant in range(16)})
+            assets.update({f"/assets/placeholders/{name}.png":
+                           (f"assets/placeholders/{name}.png", "image/png")
+                           for name in ("encounter-rewards", "ships", "worlds-entities")})
             if self.path not in assets:
                 self.send_error(404)
                 return

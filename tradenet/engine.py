@@ -10,6 +10,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from .modems import TIERS
+from .progression import Progression, MODULES
 from .wordlists import CREW_NAMES, PLANET_PREFIXES, PLANET_SUFFIXES
 
 
@@ -359,7 +360,7 @@ class GameError(ValueError):
 
 
 @dataclass
-class Game:
+class Game(Progression):
     seed: int
     name: str
     tick: int = 0
@@ -422,6 +423,11 @@ class Game:
     fleet_credit_reserve: int = 350
     next_warehouse_dispatch_tick: int = 0
     pirate_groups: dict[str, int] = field(default_factory=dict)
+    module_inventory: dict = field(default_factory=dict)
+    unique_module_history: list[str] = field(default_factory=list)
+    next_module_number: int = 1
+    settlement_progress: dict = field(default_factory=dict)
+    hub_gates_version: int = 0
 
     def __post_init__(self):
         from .modems import STARTING_RADIO_PROFILES
@@ -472,6 +478,9 @@ class Game:
             ship.setdefault("fleet_policy", {"return_to_haven": False, "auto_service": False,
                           "repair_below": 65, "fuel_below": 35})
             ship.setdefault("captain_id", None)
+        for module in self.module_inventory.values():
+            if module.get('ship_id') and module['ship_id'] not in self.fleet:
+                module.update(status='lost', ship_id=None)
         # Crew are recorded once on the roster, not duplicated inside each
         # ship. Recover marooned assignments from older or damaged saves.
         for crew in self.crew_roster.values():
@@ -500,7 +509,8 @@ class Game:
             self.active_ship_id = next(iter(self.fleet), "")
         if self.active_ship_id:
             self._bind_ship()
-        if not self.local_jobs:
+        self._initialize_hub_gates()
+        if not any(job.get('kind') != 'frontier_gate' for job in self.local_jobs.values()):
             self._replenish_local_jobs()
         self._replenish_vip_jobs()
         self._refresh_sector_events()
@@ -519,6 +529,7 @@ class Game:
         for port in list(self.visited_ports):
             if port in self.galaxies.get("home", {}).get("ports", {}):
                 self._expand_starport_frontier(port)
+        self._repair_gate_contracts()
         self._enforce_open_delivery_shortages()
         self.observe_markets()
 
@@ -561,7 +572,7 @@ class Game:
         # Dispatch displaces a routine posting rather than expanding the
         # board indefinitely. Keep the normal three-job choice budget.
         open_jobs = [job for job in self.local_jobs.values()
-                     if job["status"] == "open" and job.get("kind") not in ("rival", "followup")]
+                     if job["status"] == "open" and job.get("kind") not in ("rival", "followup", "frontier_gate")]
         for job in reversed(open_jobs):
             if len(open_jobs) <= 3:
                 break
@@ -574,7 +585,7 @@ class Game:
         """Keep posted freight demand larger than stock at its destination."""
         limits = {}
         for job in self.local_jobs.values():
-            if job.get("status") != "open":
+            if job.get("status") != "open" or job.get("kind") == "frontier_gate":
                 continue
             destination, good, quantity = (job.get("destination"), job.get("good"),
                                            job.get("quantity"))
@@ -960,15 +971,18 @@ class Game:
             option = next((item for item in encounter.get("choices", []) if item["id"] == choice), None)
             if option is None:
                 raise GameError("choose a valid response to this in-flight encounter")
-            fuel, hull = int(option.get("fuel", 0)), int(option.get("hull", 0))
+            fuel = int(option.get("fuel", 0))
+            hull = max(0, int(option.get("hull", 0)) - self.module_effects().get("armor",0))
             spent, loot = option.get("cargo", {}), option.get("loot", {})
             if self.ship["fuel"] < fuel:
                 raise GameError("insufficient fuel for that encounter choice")
-            if self.ship["condition"] - hull < 10:
+            if hull > 0 and self.ship["condition"] - hull < 10:
                 raise GameError("not enough hull integrity for that salvage attempt")
             if any(self.cargo.get(good, 0) < count for good, count in spent.items()):
                 raise GameError("load the requested supplies before choosing this outcome")
-            if self.cargo_used() - sum(spent.values()) + sum(loot.values()) > self.ship["capacity"]:
+            module_template = option.get('module_template')
+            if ((loot or module_template) and self.cargo_used() + self.incoming_reserved - sum(spent.values())
+                    + sum(loot.values()) + int(bool(module_template)) > self.ship["capacity"]):
                 raise GameError("free cargo space before collecting that salvage")
             self.ship["fuel"] -= fuel
             self.ship["condition"] -= hull
@@ -978,6 +992,10 @@ class Game:
                 eligible[good] = max(0, eligible.get(good, 0) - count)
             for good, count in loot.items():
                 self.cargo[good] += count
+            recovered_fuel = min(int(option.get("tank_fuel", 0)),
+                                 max(0, self.ship["max_fuel"] - self.ship["fuel"]))
+            self.ship["fuel"] += recovered_fuel
+            recovered_module = self._recover_module(module_template, encounter['title']) if module_template else None
             reward = int(option.get("credits", 0))
             faction, standing = option.get("faction"), int(option.get("standing", 0))
             if faction in self.factions:
@@ -998,13 +1016,19 @@ class Game:
                 outcome = "Salvage attempt triggered an ambush"
             return {"title": encounter["title"], "outcome": outcome,
                     "reward": reward, "faction": faction, "standing": standing,
-                    "loot": deepcopy(loot), "destination": self.ship["destination"]}
+                    "loot": deepcopy(loot), "tank_fuel": recovered_fuel, "module": recovered_module,
+                    "destination": self.ship["destination"]}
         if choice not in ("fight", "evade", "pay"):
             raise GameError("choose fight, evade, or pay for this pirate encounter")
         equipment = self.ship.get("equipment", [])
         weapons = equipment.count("weapons")
+        effects = self.module_effects()
         pirate_key = encounter["pirate_key"]
         strength = self.pirate_groups.setdefault(pirate_key, encounter.get("strength", 6))
+        previous_strength = strength
+        encounter.setdefault('initial_strength',strength)
+        if encounter.get('pursuit') and self.ship.get('pursuit'):
+            self.ship['pursuit'].update(progress=0.0,cooldown_until=time.time()+90)
         distance = int(encounter.get("distance", 1))
         risk = encounter.get("risk", {})
         mitigation = max(0, int(self.ship.get("modem_tier", 0)) * 2)
@@ -1013,16 +1037,21 @@ class Game:
             mitigation += engineer["level"] * 2
         if "reinforced_plating" in self.faction_perks:
             mitigation += 3
+        mitigation += effects.get("armor", 0)
+        combat = self.combat_quote()
+        round_number = int(encounter.get('round',0)) + 1
+        escaped = False
         toll = 0
         if choice == "evade":
             if self.ship["fuel"] < 2:
                 raise GameError("evading pirates requires 2 additional fuel")
             self.ship["fuel"] -= 2
-            mitigation += 2 - min(6, weapons * 2)
-            outcome = "Evaded pirates · group remains on this route" + (
+            mitigation += 2 - min(6, weapons * 2) - effects.get("evade_penalty", 0)
+            escaped = random.Random(f"{self.seed}:escape:{encounter['id']}:{round_number}").randrange(100) < combat['escape_chance']
+            outcome = ("Evaded pirates · group remains on this route" if escaped else "Escape failed · raiders are still engaging") + (
                 " · heavy weapon load made escape harder" if weapons else "")
         elif choice == "fight":
-            strength = max(0, strength - (1 + weapons * 2))
+            strength = max(0, strength - (1 + weapons * 2 + effects.get("weapon_power", 0)))
             self.pirate_groups[pirate_key] = strength
             outcome = ("Pirates driven from this route" if strength == 0 else
                        f"Pirate group weakened · {strength} strength remains")
@@ -1030,9 +1059,9 @@ class Game:
             mitigation += min(8, weapons * 2)
             self.factions["security"] += 1
         else:
-            toll = min(self.credits, max(0, 10 + distance * 3 - self.factions.get("pirates", 0) * 2))
-            if "pirate_codes" in self.faction_perks:
-                toll //= 2
+            toll = combat['toll']
+            if self.credits < toll:
+                raise GameError(f"pirates demand {toll} credits; insufficient funds")
             self.credits -= toll
             self.factions["pirates"] += 1
             outcome = f"Pirate toll paid · {toll} credits"
@@ -1041,9 +1070,66 @@ class Game:
             damage = risk.get("damage", 0) + 5 + (min(6, weapons * 2) if choice == "evade" else 0)
         else:
             damage = risk.get("damage", 0)
-        hazard_damage = max(0, damage - mitigation)
+        hazard_damage = 0 if choice == 'pay' else max(0, damage - mitigation)
         self.ship["condition"] = max(0, self.ship["condition"] - hazard_damage)
+        encounter['round'] = round_number
+        if self.ship['condition'] <= 0:
+            return self._combat_defeat(encounter,hazard_damage,strength)
+        combat_pending = (choice == 'fight' and strength > 0) or (choice == 'evade' and not escaped)
+        if combat_pending:
+            encounter['strength'] = strength
+            encounter['last_round'] = dict(outcome=outcome,hazard_damage=hazard_damage,choice=choice)
+            return dict(title=encounter['title'],outcome=outcome,strength_remaining=strength,
+                        route_cleared=False,hazard_damage=hazard_damage,toll=0,
+                        destination=self.ship['destination'],combat_pending=True,round=round_number)
         now = time.time()
+        bounty = 0
+        if choice == "fight" and previous_strength > 0 and strength == 0:
+            rng = random.Random(f"{self.seed}:pirate-salvage:{pirate_key}")
+            bounty = rng.randint(60, 120) + effects.get("bounty_bonus", 0)
+            good = rng.choice(GOODS[:4] if rng.random() < .8 else tuple(sorted(RARE)))
+            loot = {good: rng.randint(1, 3) + effects.get("salvage_bonus", 0) if good not in RARE else 1}
+            tank_fuel = rng.randint(1, 3) if rng.random() < .35 else 0
+            manifest = ", ".join(f"{count} {'bulk propellant (cargo)' if good == 'fuel' else good}"
+                                 for good, count in loot.items())
+            choices = [{"id": "collect", "label": "Recover salvage",
+                        "description": f"Load {manifest}" +
+                            (f" and recover up to {tank_fuel} tank fuel." if tank_fuel else "."),
+                        "loot": loot, "tank_fuel": tank_fuel}]
+            if tank_fuel:
+                choices.append({"id": "fuel_only", "label": "Recover fuel only",
+                                "description": f"Recover up to {tank_fuel} tank fuel; leave the cargo.",
+                                "tank_fuel": tank_fuel})
+            template = self.module_drop(pirate_key, unique=rng.random() < .3) if rng.random() < .6 else None
+            if template:
+                choices[0]['module_template'] = template
+                choices[0]['description'] += ' Module: ' + MODULES[template]['name'] + ' (1 cargo packed).'
+                choices.append({'id':'module_only', 'label':'Recover modification only',
+                    'description':MODULES[template]['name'] + ': ' + MODULES[template]['description'],
+                    'module_template':template})
+                manifest += ' · ' + MODULES[template]['name'] + ' (1 cargo packed)' + (' · signature attracts raiders' if MODULES[template].get('signature') else '')
+            choices.append({"id": "leave", "label": "Leave salvage & continue",
+                            "description": "Keep your cargo space free. The credit bounty is already paid."})
+            if encounter.get('pursuit'):
+                outcome = 'Pursuers driven off'
+            self.credits += bounty
+            self.ship["flight_encounter"] = {
+                **deepcopy(encounter), "id": encounter["id"] + "-salvage",
+                "kind": "pirate_salvage", "title": "Raider wreckage · salvage available",
+                "description": f"Route cleared. +{bounty} cr bounty paid. Recoverable: {manifest}." +
+                    (f" Fuel cache: up to {tank_fuel} tank units." if tank_fuel else ""),
+                "choices": choices, "trigger_at": now, "bounty": bounty}
+            # Keep the flight paused until the player accepts or leaves the loot.
+            # Shift later incidents by combat time now; salvage time is shifted
+            # by the normal encounter resolver when the player makes that choice.
+            paused_for = max(0.0, now - float(encounter.get("trigger_at", now)))
+            for queued in self.ship.get("flight_encounters", []):
+                queued["trigger_at"] += paused_for
+            return {"title": encounter["title"], "outcome": outcome,
+                    "strength_remaining": 0, "route_cleared": True,
+                    "hazard_damage": hazard_damage, "toll": 0, "bounty": bounty,
+                    "salvage": deepcopy(loot), "salvage_pending": True,
+                    "destination": self.ship["destination"]}
         elapsed = float(encounter.get("elapsed_seconds", 0))
         remaining = float(encounter.get("remaining_seconds", 0))
         paused_for = max(0.0, now - float(encounter.get("trigger_at", now)))
@@ -1059,7 +1145,8 @@ class Game:
                 "destination": self.ship["destination"]}
 
     def _apply_encounter_option(self, encounter: dict, option: dict) -> dict:
-        fuel_cost, hull_cost = option.get("fuel", 0), option.get("hull", 0)
+        fuel_cost = option.get("fuel", 0)
+        hull_cost = max(0, option.get("hull", 0) - self.module_effects().get("armor",0))
         spent = option.get("cargo", {})
         loot = option.get("loot", {})
         if self.ship["fuel"] < fuel_cost:
@@ -1277,6 +1364,7 @@ class Game:
 
     def _replenish_vip_jobs(self):
         for job in self.vip_jobs.values():
+            job.setdefault('pursuit_risk',job.get('faction') in ('diplomats','traders'))
             if (job["status"] == "open" and job.get("kind") != "frontier_gate" and
                     self.tick > job["deadline"]):
                 job["status"] = "expired"
@@ -1296,7 +1384,8 @@ class Game:
                 "title": names[(n-1) % len(names)], "origin": origin,
                 "destination": destination, "reward": 240 + (n % 4) * 65,
                 "faction": ("diplomats", "scientists", "explorers", "traders")[(n-1) % 4],
-                "deadline": self.tick + 48, "status": "open"}
+                "deadline": self.tick + 48, "status": "open",
+                "pursuit_risk": (n-1)%4 in (0,3)}
 
     def _accept_vip(self, job_id: str) -> dict:
         self._available()
@@ -1474,6 +1563,11 @@ class Game:
         self._require_service("shipyard")
         if item not in EQUIPMENT or item not in self.ship.get("equipment", []):
             raise GameError("this ship does not have that equipment installed")
+        for key, module in list(self.module_inventory.items()):
+            if (module['template'] == 'standard:'+item and module.get('ship_id') == self.active_ship_id
+                    and module['status'] == 'installed'):
+                del self.module_inventory[key]
+                break
         self.ship["equipment"].remove(item)
         payout = max(1, EQUIPMENT[item] // 2)
         self.credits += payout
@@ -1493,6 +1587,9 @@ class Game:
             raise GameError("unload the ship's cargo before selling it")
         if any(crew.get("ship_id") == ship_id for crew in self.crew_roster.values()):
             raise GameError("reassign the ship's crew before selling it")
+        if any(m.get('ship_id') == ship_id and m['status'] in ('installed','stowed')
+               for m in self.module_inventory.values()):
+            raise GameError("store this ship's modifications before selling it")
         class_id = ship.get("class_id")
         if class_id:
             from .modems import SHIPS
@@ -1656,8 +1753,17 @@ class Game:
             path.append(current)
             current = previous[current]
         path.reverse()
-        for first, second in zip(path, path[1:]):
-            child = second if self.route_parent(second) == first else first if self.route_parent(first) == second else None
+        def ancestors(node):
+            result,seen=[],set()
+            while node in self.ports and node not in seen:
+                seen.add(node);result.append(node);node=self.route_parent(node)
+            return result
+        origin_ancestors,destination_ancestors=ancestors(origin),ancestors(destination)
+        checks=[second if self.route_parent(second)==first else first if self.route_parent(first)==second else None
+                for first,second in zip(path,path[1:])]
+        checks += [node for node in origin_ancestors+destination_ancestors
+                   if (node in origin_ancestors) != (node in destination_ancestors)]
+        for child in dict.fromkeys(checks):
             gate = self.ports[child].get("map_gate") if child else None
             gate = gate or {}
             if not gate or gate.get("unlocked"):
@@ -1831,7 +1937,7 @@ class Game:
     def _replenish_local_jobs(self):
         """Keep a small deterministic board of real, one-time freight demand."""
         for job in self.local_jobs.values():
-            if job["status"] == "open" and self.tick > job["deadline"]:
+            if job["status"] == "open" and job.get("kind") != "frontier_gate" and self.tick > job["deadline"]:
                 job["status"] = "claimed" if job.get("kind") == "rival" else "expired"
                 if job.get("kind") == "rival":
                     captain = self.npc_captains.get(job["npc_id"])
@@ -1850,7 +1956,7 @@ class Game:
         open_jobs = sum(job["status"] == "open" and job.get("kind") not in ("rival", "followup", "frontier_gate")
                         for job in self.local_jobs.values())
         ports = [port for port, record in self.ports.items()
-                 if record.get("entity_type") != "carrier"]
+                 if record.get("entity_type") != "carrier" and self.route_status("Haven",port)["open"]]
         while open_jobs < 3 and ports:
             number = self.next_job_number
             self.next_job_number += 1
@@ -1945,6 +2051,7 @@ class Game:
 
     def _all_arrivals(self):
         for ship in self.fleet.values():
+            self._update_pursuit(ship,time.time())
             if ship.get("destination") is not None:
                 if ship.get("flight_encounter", {}).get("status") == "pending":
                     continue
@@ -1990,6 +2097,7 @@ class Game:
                         self._expand_starport_frontier(ship["location"])
                         artifact = self._collect_frontier_artifact(ship["location"])
                         explore_bonus = 90 + min(100, self.factions["explorers"] * 10)
+                        explore_bonus += self.module_effects(ship["id"]).get("discovery_bonus",0)
                         explore_bonus += 50 * self.haven_facilities.get("grand_archive", 0)
                         if "survey_uplink" in self.faction_perks:
                             explore_bonus += 45
@@ -2523,7 +2631,7 @@ class Game:
                                          "tick": self.tick, "action": "fleet_auto_repair",
                                          "result": {"ship_id": ship_id, "cost": result["cost"]}})
             if ship["fuel"] * 100 <= ship["max_fuel"] * policy.get("fuel_below", 35):
-                unit_price = self.price("Haven", "fuel", "buy")
+                unit_price = self.refuel_unit_price("Haven")
                 affordable = max(0, (self.credits - self.fleet_credit_reserve) // max(1, unit_price))
                 quantity = min(ship["max_fuel"] - ship["fuel"],
                                self.galaxies["home"]["ports"]["Haven"]["stock"]["fuel"], affordable)
@@ -2862,7 +2970,10 @@ class Game:
             for captain in self.npc_captains.values():
                 if captain["location"] == port and captain["good"] == good:
                     multiplier -= 2 * captain["relationship"]
-        return max(1, midpoint * multiplier // 100)
+        price = max(1, midpoint * multiplier // 100)
+        if action == 'buy' and self.settlement_progress.get(port, {}).get('level',0) >= 1:
+            price = max(1, price * 97 // 100)
+        return price
 
     def _check_port_good(self, port: str, good: str) -> None:
         if port not in self.ports:
@@ -2900,7 +3011,7 @@ class Game:
         goods = sum(ship.get("cargo", {}).values())
         installed = sum(EQUIPMENT_CARGO_SPACE.get(item, 0)
                         for item in ship.get("equipment", []))
-        return goods + installed
+        return goods + installed + self.module_cargo_used(ship.get("id", self.active_ship_id))
 
     def command(self, command_id: str, action: str, **kwargs) -> dict:
         """Execute once. Repeated IDs return their original result without side effects."""
@@ -2923,6 +3034,8 @@ class Game:
                 result = self._trade("buy", **kwargs)
             elif action == "sell":
                 result = self._trade("sell", **kwargs)
+            elif action == "trade_manifest":
+                result = self._trade_manifest(**kwargs)
             elif action == "travel":
                 result = self._travel(**kwargs)
             elif action == "deploy_carrier":
@@ -3003,6 +3116,22 @@ class Game:
                 result = self._deliver_vip(**kwargs)
             elif action == "cancel_vip":
                 result = self._cancel_vip(**kwargs)
+            elif action == "plot_route":
+                result = self._plot_route(**kwargs)
+            elif action == "follow_route":
+                result = self._follow_route()
+            elif action == "cancel_plotted_route":
+                result = self._cancel_plotted_route()
+            elif action == "jettison_module":
+                result = self._jettison_module(**kwargs)
+            elif action == "install_module":
+                result = self._install_module(**kwargs)
+            elif action == "uninstall_module":
+                result = self._uninstall_module(**kwargs)
+            elif action == "uninstall_equipment":
+                result = self._uninstall_equipment(**kwargs)
+            elif action == "supply_settlement":
+                result = self._supply_settlement(**kwargs)
             elif action == "buy_equipment":
                 result = self._buy_equipment(**kwargs)
             elif action == "dockside_shift":
@@ -3044,6 +3173,31 @@ class Game:
                              "action": action, "args": deepcopy(kwargs),
                              "result": deepcopy(result)})
         return result
+
+    def _trade_manifest(self, quantities: dict, port: str, ship_id: str,
+                        prices: dict) -> dict:
+        """Settle a quoted basket atomically through command's rollback boundary."""
+        self._available()
+        if port != self.location or ship_id != self.active_ship_id:
+            raise GameError("trade location or vessel changed; review the deal")
+        if not isinstance(quantities, dict) or not quantities or len(quantities) > len(GOODS):
+            raise GameError("choose at least one commodity to trade")
+        for good, amount in quantities.items():
+            self._check_port_good(port, good)
+            if type(amount) is not int or not amount or abs(amount) > 10000:
+                raise GameError("trade quantities must be whole numbers from -10000 to 10000")
+            action = "buy" if amount > 0 else "sell"
+            if not isinstance(prices, dict) or prices.get(good) != self.price(port, good, action):
+                raise GameError("market prices changed; review the updated deal")
+        # Selling first releases both credits and hold space for this deal.
+        receipts = []
+        for selling in (True, False):
+            for good, amount in quantities.items():
+                if (amount < 0) == selling:
+                    receipts.append(self._trade("sell" if selling else "buy", good, abs(amount)))
+        return {"trades": receipts, "credits": self.credits,
+                "net_cost": sum(r["total"] * (1 if r["action"] == "buy" else -1)
+                                for r in receipts)}
 
     def _trade(self, action: str, good: str, amount: int) -> dict:
         self._available()
@@ -3103,6 +3257,32 @@ class Game:
         return {"good": good, "amount": amount,
                 "warehouse": self.export_warehouse[good]}
 
+    def travel_fuel_quote(self, origin: str, destination: str) -> dict:
+        """Quote tank consumption from graph hops, independent of map spacing."""
+        route = self.route_status(origin, destination)
+        if not route["reachable"] or origin == destination:
+            return {"fuel_cost": 0, "return_fuel": 0, "hops": 0,
+                    "kind": "unavailable", "bypass_fuel": 0}
+        hops = len(route["path"]) - 1
+        carrier = any(self.ports[node].get("entity_type") == "carrier"
+                      for node in route["path"])
+        connected = self.route_connected(origin, destination)
+        if carrier:
+            base, kind = max(1, math.ceil(hops / 2)), "carrier"
+        elif connected:
+            base, kind = 2, "charted"
+        else:
+            base, kind = 2 + hops, "crossing"
+        bypass = int(connected and self.asteroid_field_blocks(origin, destination))
+        pilot = self.crew_member(self.active_ship_id, "pilot")
+        fuel = max(1, base + bypass - (pilot["level"] if pilot else 0) - min(2, self.module_effects().get("fuel_saving",0)))
+        return {"fuel_cost": fuel, "return_fuel": fuel, "hops": hops,
+                "kind": kind, "bypass_fuel": bypass}
+
+    def refuel_unit_price(self, port: str) -> int:
+        """Price tank service separately from bulk propellant cargo trading."""
+        return max(1, math.ceil(self.price(port, "fuel", "buy") / 5))
+
     def _travel(self, destination: str, pirate_stance: str = "pay") -> dict:
         self._available(allow_hostile_planet=True)
         if self.ship.get("class_id") == "carrier":
@@ -3126,27 +3306,15 @@ class Game:
         carrier_route = any(self.ports.get(node, {}).get("entity_type") == "carrier"
                             for node in corridor["path"])
         risk = self.route_risk(self.location, destination)
-        # Distances are already expressed in map hops; charge one unit per
-        # hop, with charted routes retaining their half-cost advantage.
-        base_fuel = max(1, distance)
-        connected = self.route_connected(self.location, destination)
-        if carrier_route:
-            fuel_cost = max(1, math.ceil(base_fuel / 3))
-        elif connected:
-            fuel_cost = max(1, base_fuel // 2)
-        else:
-            fuel_cost = base_fuel * 3
-        fuel_cost += 4 if blocked else 0
+        fuel_cost = self.travel_fuel_quote(self.location, destination)["fuel_cost"]
         pilot = self.crew_member(self.active_ship_id, "pilot")
         engineer = self.crew_member(self.active_ship_id, "engineer")
-        if pilot:
-            fuel_cost = max(1, fuel_cost - pilot["level"])
         if fuel_cost > self.ship["fuel"]:
             raise GameError("insufficient ship fuel")
         if self.ship["condition"] < 10:
             raise GameError("repair ship before traveling")
         self.ship["fuel"] -= fuel_cost
-        mitigation = max(0, int(self.ship.get("modem_tier", 0)) * 2)
+        mitigation = max(0, int(self.ship.get("modem_tier", 0)) * 2) + self.module_effects().get("armor",0)
         if risk["kind"] == "gas" and "shield" in equipment:
             mitigation += 6
         if risk["kind"] != "clear" and "reinforced_plating" in self.faction_perks:
@@ -3204,6 +3372,14 @@ class Game:
                 ordinary_templates = [template for template in TRANSIT_ENCOUNTER_TEMPLATES
                                       if template["kind"] != "derelict_trap"]
                 event = deepcopy(ordinary_templates[route_rng.randrange(len(ordinary_templates))])
+                if event['kind'] in ('derelict','salvage','derelict_trap') and route_rng.random() < .5:
+                    template = self.module_drop(f'derelict:{self.tick}:{len(self.journal)}', unique=route_rng.random()<.25)
+                    if template:
+                        for option in event['choices']:
+                            if option.get('loot'):
+                                option['module_template'] = template
+                                option['description'] = option.get('description','') + ' Recover ' + MODULES[template]['name'] + ' (1 cargo packed).'
+                                break
                 if event["kind"] == "derelict" and route_rng.random() < .18:
                     event = deepcopy(next(template for template in TRANSIT_ENCOUNTER_TEMPLATES
                                           if template["kind"] == "derelict_trap"))
@@ -3359,7 +3535,8 @@ class Game:
         captain = self.crew_roster.get(ship.get("captain_id"))
         discount_percent = min(90, 15 * self.haven_facilities.get("repair_bay", 0) +
                                (5 * engineer["level"] if engineer else 0) +
-                               (5 * max(0, captain.get("command_level", 1) - 1) if captain else 0))
+                               (5 * max(0, captain.get("command_level", 1) - 1) if captain else 0) +
+                               self.module_effects(ship_id).get("repair_discount",0))
         return math.ceil((100 - ship["condition"]) * 2 * (100 - discount_percent) / 100)
 
     def _repair(self) -> dict:
@@ -3384,7 +3561,7 @@ class Game:
         stock = self.ports[self.location]["stock"]
         if stock["fuel"] < amount:
             raise GameError("insufficient port fuel")
-        cost = self.price(self.location, "fuel", "buy") * amount
+        cost = self.refuel_unit_price(self.location) * amount
         if self.credits < cost:
             raise GameError("insufficient credits")
         stock["fuel"] -= amount
@@ -3401,7 +3578,7 @@ class Game:
             raise GameError("emergency fuel amount exceeds tank capacity")
         if self.ports[self.location]["stock"]["fuel"] > 0:
             raise GameError("use the regular refuel service while station fuel is available")
-        cost = self.price(self.location, "fuel", "buy") * amount * 2
+        cost = self.refuel_unit_price(self.location) * amount * 2
         if self.credits < cost:
             raise GameError("insufficient credits for emergency reserve fuel")
         self.credits -= cost
